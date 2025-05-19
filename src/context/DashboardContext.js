@@ -12,6 +12,26 @@ import {
   fetchTrends
 } from '../firebase/db';
 
+// Función auxiliar para normalizar fechas para Firebase
+function normalizarFechaParaFirebase(fecha) {
+  if (!fecha) return '';
+  // Si ya está en formato YYYY-MM-DD, devolverlo tal cual
+  if (/^\d{4}-\d{2}-\d{2}$/.test(fecha)) return fecha;
+  
+  // Si está en formato DD/MM/YYYY, convertirlo
+  if (/^\d{2}\/\d{2}\/\d{4}$/.test(fecha)) {
+    return fecha.split('/').reverse().join('-');
+  }
+  
+  // Ante cualquier otro formato, intentar convertir
+  try {
+    const date = new Date(fecha);
+    return date.toISOString().split('T')[0];
+  } catch {
+    return fecha;
+  }
+}
+
 // Crear el contexto
 export const DashboardContext = createContext();
 
@@ -83,12 +103,20 @@ export const DashboardProvider = ({ children }) => {
       
       // Preparar filtros para las consultas
       const queryFilters = {
-        dateRange: filtros.tipoFiltro === 'rango' ? filtros.rango : 
-                  filtros.tipoFiltro === 'dia' ? { fin: filtros.rango.fin } : null,
+        dateRange: filtros.tipoFiltro === 'rango' 
+          ? { 
+              inicio: normalizarFechaParaFirebase(filtros.rango.inicio),
+              fin: normalizarFechaParaFirebase(filtros.rango.fin)
+            } 
+          : filtros.tipoFiltro === 'dia' 
+            ? { fin: normalizarFechaParaFirebase(filtros.rango.fin) } 
+            : null,
         tipoFiltro: filtros.tipoFiltro,
         category: filtros.categoria !== 'TODAS' ? filtros.categoria : null,
         location: filtros.ubicacion !== 'TODAS' ? filtros.ubicacion : null
       };
+      
+      console.log("Filtros normalizados para Firebase:", queryFilters);
       
       // Cargar datos de Firebase en paralelo para mejorar rendimiento
       const [kpisData, workersData, activitiesData, reportsData, distribucionData, tendenciasData] = await Promise.all([
@@ -111,7 +139,7 @@ export const DashboardProvider = ({ children }) => {
         }),
         
         // Reportes
-        fetchReports(db, 10).catch(err => {
+        fetchReports(db, queryFilters, 10).catch(err => {
           console.error("Error al cargar reportes:", err);
           return mockData.reportes; // Fallback a datos de prueba
         }),

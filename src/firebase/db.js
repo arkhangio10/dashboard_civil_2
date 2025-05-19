@@ -15,6 +15,28 @@ import {
   serverTimestamp
 } from 'firebase/firestore';
 
+// Función auxiliar para asegurar formato de fecha correcto
+const asegurarFormatoFecha = (fecha) => {
+  if (!fecha) return null;
+  
+  // Si ya está en formato YYYY-MM-DD, devolverlo tal cual
+  if (/^\d{4}-\d{2}-\d{2}$/.test(fecha)) return fecha;
+  
+  // Si está en formato DD/MM/YYYY, convertirlo
+  if (/^\d{2}\/\d{2}\/\d{4}$/.test(fecha)) {
+    return fecha.split('/').reverse().join('-');
+  }
+  
+  // Ante cualquier otro formato, intentar convertir
+  try {
+    const date = new Date(fecha);
+    return date.toISOString().split('T')[0];
+  } catch {
+    console.error("Formato de fecha no reconocido:", fecha);
+    return fecha;
+  }
+};
+
 // Función para obtener datos de trabajadores
 export const fetchWorkers = async (db, filters = {}) => {
   try {
@@ -56,8 +78,8 @@ export const fetchWorkers = async (db, filters = {}) => {
     
     // Filtrar por fecha si está presente
     if (dateRange && dateRange.inicio && dateRange.fin) {
-      const startDate = new Date(dateRange.inicio).getTime();
-      const endDate = new Date(dateRange.fin).getTime();
+      const startDate = new Date(asegurarFormatoFecha(dateRange.inicio)).getTime();
+      const endDate = new Date(asegurarFormatoFecha(dateRange.fin)).getTime();
       
       return workers.filter(worker => {
         // Verificar si hay campo fecha en ultimaActividad
@@ -169,7 +191,7 @@ export const fetchKPIs = async (db, filters = {}) => {
       fecha = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0];
     } else if (dateRange && dateRange.fin) {
       // Usar fecha específica para período diario
-      fecha = dateRange.fin;
+      fecha = asegurarFormatoFecha(dateRange.fin);
     }
     
     // ID del documento basado en el período y fecha
@@ -271,7 +293,6 @@ export const fetchKPIs = async (db, filters = {}) => {
 };
 
 // Función para obtener datos de reportes
-// Función para obtener datos de reportes
 export const fetchReports = async (db, filters = {}, limitCount = 10) => {
   try {
     console.log(`Obteniendo hasta ${limitCount} reportes con filtros:`, filters);
@@ -281,7 +302,7 @@ export const fetchReports = async (db, filters = {}, limitCount = 10) => {
     let fechaFiltro = null;
     
     if (tipoFiltro === 'dia' && dateRange && dateRange.fin) {
-      fechaFiltro = dateRange.fin;
+      fechaFiltro = asegurarFormatoFecha(dateRange.fin);
       console.log(`Aplicando filtro de fecha para día específico: ${fechaFiltro}`);
     }
     
@@ -291,7 +312,6 @@ export const fetchReports = async (db, filters = {}, limitCount = 10) => {
     
     // Si hay filtro de fecha, agregarlo a la consulta
     if (fechaFiltro) {
-      // Convertir formato de fecha YYYY-MM-DD a formato que coincida con la base de datos
       queryConstraints.push(where('fecha', '==', fechaFiltro));
     }
     
@@ -366,7 +386,7 @@ export const fetchDistributionByCategory = async (db, filters = {}) => {
       fecha = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0];
     } else if (filters.dateRange && filters.dateRange.fin) {
       // Usar fecha específica para período diario
-      fecha = filters.dateRange.fin;
+      fecha = asegurarFormatoFecha(filters.dateRange.fin);
     }
     
     // ID del documento basado en el período y fecha

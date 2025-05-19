@@ -1,3 +1,4 @@
+// src/components/dashboard/FiltroDashboard.js
 import React, { useState, useContext } from 'react';
 import { CalendarRange, Filter, ChevronDown } from 'lucide-react';
 import { 
@@ -7,7 +8,6 @@ import {
   generarMeses
 } from '../../utils/dateUtils';
 import DashboardContext from '../../context/DashboardContext';
-import { normalizarFormatoFecha } from '../../utils/dateUtils';
 
 const FiltroDashboard = () => {
   const { filtros, setFiltros } = useContext(DashboardContext);
@@ -18,15 +18,15 @@ const FiltroDashboard = () => {
     setFiltros(prev => ({ ...prev, tipoFiltro: tipo }));
   };
 
-const cambiarFechaRango = (campo, valor) => {
-  // Normalizar al formato que usa Firebase (YYYY-MM-DD)
-  const fechaNormalizada = normalizarFormatoFecha(valor, 'YYYY-MM-DD');
-  
-  setFiltros(prev => ({
-    ...prev,
-    rango: { ...prev.rango, [campo]: fechaNormalizada }
-  }));
-};
+  const cambiarFechaRango = (campo, valor) => {
+    // Usamos el valor directamente del input type="date", ya viene en formato YYYY-MM-DD
+    console.log(`Cambiando fecha ${campo} a: ${valor}`);
+    
+    setFiltros(prev => ({
+      ...prev,
+      rango: { ...prev.rango, [campo]: valor }
+    }));
+  };
 
   const cambiarSemana = (semana) => {
     setFiltros(prev => ({ ...prev, semana }));
