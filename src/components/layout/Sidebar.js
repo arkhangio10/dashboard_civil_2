@@ -1,12 +1,34 @@
 // src/components/layout/Sidebar.js
 import React from 'react';
-import { LayoutDashboard, DollarSign, Activity, Users, Layers, Calendar, FileText, Settings } from 'lucide-react';
+import { LayoutDashboard, DollarSign, Activity, Users, Layers, Calendar, FileText, Settings, LogOut } from 'lucide-react';
+import { useAuth } from '../../context/AuthContext';
+import { useNavigate } from 'react-router-dom';
 
 const Sidebar = ({ moduloActivo, setModuloActivo }) => {
+  const { currentUser, logout, selectedProject } = useAuth();
+  const navigate = useNavigate();
+  
+  // Método para cerrar sesión
+  const handleLogout = async () => {
+    try {
+      await logout();
+      navigate('/login');
+    } catch (error) {
+      console.error("Error al cerrar sesión:", error);
+    }
+  };
+  
   return (
     <div className="hidden md:flex md:flex-col md:w-64 md:fixed md:inset-y-0 bg-blue-800 text-white">
       <div className="flex items-center justify-center h-16 border-b border-blue-700">
         <h1 className="text-xl font-bold">HERGONSA DASHBOARD</h1>
+      </div>
+      
+      <div className="py-2 px-4 border-b border-blue-700">
+        <div className="flex items-center py-1">
+          <span className="text-sm text-blue-300">Proyecto actual:</span>
+        </div>
+        <div className="font-medium truncate text-white">{selectedProject.toUpperCase()}</div>
       </div>
       
       <div className="flex-grow overflow-y-auto">
@@ -67,14 +89,26 @@ const Sidebar = ({ moduloActivo, setModuloActivo }) => {
             <Settings className="mr-3" size={20} />
             <span>Configuración</span>
           </button>
+          
+          <button 
+            onClick={handleLogout}
+            className="flex items-center w-full px-4 py-3 mb-2 rounded-md text-red-300 hover:bg-red-700 hover:text-white"
+          >
+            <LogOut className="mr-3" size={20} />
+            <span>Cerrar sesión</span>
+          </button>
         </nav>
       </div>
       
       <div className="p-4 border-t border-blue-700">
         <div className="flex items-center">
-          <img src="https://randomuser.me/api/portraits/men/32.jpg" alt="Perfil" className="w-10 h-10 rounded-full mr-3" />
+          <img 
+            src={currentUser?.photoURL || "https://randomuser.me/api/portraits/men/32.jpg"} 
+            alt="Perfil" 
+            className="w-10 h-10 rounded-full mr-3" 
+          />
           <div>
-            <p className="font-medium">Abel Mancilla</p>
+            <p className="font-medium">{currentUser?.displayName || currentUser?.email || "Usuario"}</p>
             <p className="text-sm text-blue-300">Supervisor de Obra</p>
           </div>
         </div>
