@@ -3,7 +3,14 @@ import React, { createContext, useState, useEffect, useContext } from 'react';
 import { obtenerSemanaActual, obtenerMesActual } from '../utils/dateUtils';
 import { mockData } from '../utils/mockData';
 import { useAuth } from './AuthContext';
-import { fetchKPIs, fetchWorkers, fetchActivities, fetchReports } from '../firebase/db';
+import { 
+  fetchKPIs, 
+  fetchWorkers, 
+  fetchActivities, 
+  fetchReports,
+  fetchDistributionByCategory,
+  fetchTrends
+} from '../firebase/db';
 
 // Crear el contexto
 export const DashboardContext = createContext();
@@ -11,7 +18,7 @@ export const DashboardContext = createContext();
 // Proveedor del contexto
 export const DashboardProvider = ({ children }) => {
   const { db, selectedProject } = useAuth();
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [useMockData, setUseMockData] = useState(false); // Para desarrollo y pruebas
   
@@ -41,7 +48,7 @@ export const DashboardProvider = ({ children }) => {
   // Cargar datos cuando cambian los filtros o el proyecto seleccionado
   useEffect(() => {
     cargarDatos();
-  }, [filtros, selectedProject, db]);
+  }, [filtros, selectedProject, db, useMockData]);
   
   // Función para cargar datos reales de Firebase
   const cargarDatos = async () => {
@@ -66,50 +73,62 @@ export const DashboardProvider = ({ children }) => {
       setLoading(true);
       setError(null);
       
+      // Verificar si tenemos una instancia de Firestore
+      if (!db) {
+        throw new Error("No hay conexión con Firebase. Verifique su configuración.");
+      }
+      
+      console.log("Cargando datos desde Firebase para proyecto:", selectedProject);
+      console.log("Filtros aplicados:", filtros);
+      
       // Preparar filtros para las consultas
       const queryFilters = {
         dateRange: filtros.tipoFiltro === 'rango' ? filtros.rango : null,
-        category: filtros.categoria,
-        location: filtros.ubicacion
+        category: filtros.categoria !== 'TODAS' ? filtros.categoria : null,
+        location: filtros.ubicacion !== 'TODAS' ? filtros.ubicacion : null,
+        tipoFiltro: filtros.tipoFiltro
       };
       
-      // Cargar datos de Firebase en paralelo
-      const [kpisData, workersData, activitiesData, reportsData] = await Promise.all([
-        fetchKPIs(db, queryFilters),
-        fetchWorkers(db, queryFilters),
-        fetchActivities(db, queryFilters),
-        fetchReports(db, 10) // Obtener los últimos 10 reportes
+      // Cargar datos de Firebase en paralelo para mejorar rendimiento
+      const [kpisData, workersData, activitiesData, reportsData, distribucionData, tendenciasData] = await Promise.all([
+        // KPIs generales
+        fetchKPIs(db, queryFilters).catch(err => {
+          console.error("Error al cargar KPIs:", err);
+          return mockData.kpis; // Fallback a datos de prueba
+        }),
+        
+        // Datos de trabajadores
+        fetchWorkers(db, queryFilters).catch(err => {
+          console.error("Error al cargar trabajadores:", err);
+          return mockData.trabajadores; // Fallback a datos de prueba
+        }),
+        
+        // Actividades
+        fetchActivities(db, queryFilters).catch(err => {
+          console.error("Error al cargar actividades:", err);
+          return mockData.actividades; // Fallback a datos de prueba
+        }),
+        
+        // Reportes
+        fetchReports(db, 10).catch(err => {
+          console.error("Error al cargar reportes:", err);
+          return mockData.reportes; // Fallback a datos de prueba
+        }),
+        
+        // Distribución por categorías
+        fetchDistributionByCategory(db, queryFilters).catch(err => {
+          console.error("Error al cargar distribución por categorías:", err);
+          return mockData.distribucion.categorias; // Fallback a datos de prueba
+        }),
+        
+        // Tendencias
+        fetchTrends(db, queryFilters).catch(err => {
+          console.error("Error al cargar tendencias:", err);
+          return mockData.tendencias; // Fallback a datos de prueba
+        })
       ]);
       
-      // Procesar datos para tendencias y distribución
-      // Nota: Estos cálculos deben adaptarse a la estructura real de tus datos
-      
-      // Procesar distribución por categorías
-      const distribucionCategorias = Object.entries(
-        workersData.reduce((acc, worker) => {
-          const categoria = worker.categoria || 'SIN CATEGORÍA';
-          if (!acc[categoria]) {
-            acc[categoria] = { 
-              nombre: categoria, 
-              cantidad: 0, 
-              horas: 0, 
-              costo: 0, 
-              valor: 0, 
-              porcentaje: 0 
-            };
-          }
-          acc[categoria].cantidad += 1;
-          acc[categoria].horas += worker.horas || 0;
-          acc[categoria].costo += worker.costo || 0;
-          return acc;
-        }, {})
-      ).map(([_, value]) => value);
-      
-      // Calcular porcentajes
-      const totalCosto = distribucionCategorias.reduce((sum, cat) => sum + cat.costo, 0);
-      distribucionCategorias.forEach(cat => {
-        cat.porcentaje = totalCosto > 0 ? Math.round((cat.costo / totalCosto) * 100) : 0;
-      });
+      console.log("Datos cargados exitosamente");
       
       // Actualizar el estado con los datos cargados
       setDatos({
@@ -117,11 +136,10 @@ export const DashboardProvider = ({ children }) => {
         actividades: activitiesData,
         trabajadores: workersData,
         reportes: reportsData,
-        // Mantener algunos datos de prueba para gráficos que aún no están implementados
-        tendencias: mockData.tendencias,
+        tendencias: tendenciasData,
         distribucion: {
           ...mockData.distribucion,
-          categorias: distribucionCategorias.length > 0 ? distribucionCategorias : mockData.distribucion.categorias
+          categorias: distribucionData
         }
       });
       

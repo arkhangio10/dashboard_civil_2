@@ -1,6 +1,6 @@
 // src/components/layout/Sidebar.js
 import React from 'react';
-import { LayoutDashboard, DollarSign, Activity, Users, Layers, Calendar, FileText, Settings, LogOut } from 'lucide-react';
+import { LayoutDashboard, DollarSign, Activity, Users, Layers, Calendar, FileText, Settings, LogOut, Database } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 
@@ -74,6 +74,14 @@ const Sidebar = ({ moduloActivo, setModuloActivo }) => {
           </button>
           
           <hr className="my-4 border-blue-700" />
+          
+          <button 
+            onClick={() => setModuloActivo('firebase')}
+            className={`flex items-center w-full px-4 py-3 mb-2 rounded-md ${moduloActivo === 'firebase' ? 'bg-blue-700' : 'hover:bg-blue-700'}`}
+          >
+            <Database className="mr-3" size={20} />
+            <span>Firebase</span>
+          </button>
           
           <button className="flex items-center w-full px-4 py-3 mb-2 rounded-md hover:bg-blue-700">
             <Calendar className="mr-3" size={20} />
