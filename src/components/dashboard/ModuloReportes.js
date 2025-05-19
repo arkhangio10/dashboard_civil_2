@@ -1,15 +1,18 @@
 // src/components/dashboard/ModuloReportes.js
 import React, { useState, useEffect } from 'react';
-import { Link2, Download, Share2, Calendar, Layers, FileText, ExternalLink, Code, Award, DollarSign, Activity, Edit, Trash } from 'lucide-react';
+import { Link2, Download, Share2, Calendar, Layers, FileText, ExternalLink, Code, Award, DollarSign, Activity, Edit, Trash, BarChart2 } from 'lucide-react';
 import { useDashboard } from '../../context/DashboardContext';
+import { formatoMoneda } from '../../utils/formatUtils';
+import GraficoReportes from './GraficoReportes';
 
 const ModuloReportes = () => {
   const [tabActivo, setTabActivo] = useState('reportes');
   const [enlaceCompartir, setEnlaceCompartir] = useState('');
   const [mostrarEnlace, setMostrarEnlace] = useState(false);
+  const [mostrarGrafico, setMostrarGrafico] = useState(true);
   
   // Usar el contexto de Dashboard para obtener datos reales
-  const { datos, loading } = useDashboard();
+  const { datos, loading, filtros } = useDashboard();
   
   // Obtener reportes del contexto (datos reales) en lugar de mockData
   const reportes = datos.reportes || [];
@@ -17,11 +20,6 @@ const ModuloReportes = () => {
   // Verificar en la consola qué datos estamos recibiendo
   useEffect(() => {
     console.log("Datos de reportes cargados:", reportes);
-    
-    // Verificar específicamente los enlaces
-    reportes.forEach(report => {
-      console.log(`Reporte ${report.id || 'sin ID'}: Enlace = ${report.enlaceSheet || 'No tiene enlace'}`);
-    });
   }, [reportes]);
   
   // Función para generar enlace de compartir
@@ -41,9 +39,34 @@ const ModuloReportes = () => {
       });
   };
   
-  // Función para generar informe y descargar
-  const generarInforme = (formato) => {
-    alert(`Generando informe en formato ${formato}. Esta funcionalidad se implementará próximamente.`);
+  // Función para formatear la fecha (YYYY-MM-DD a DD/MM/YYYY)
+  const formatearFecha = (fechaStr) => {
+    if (!fechaStr) return '';
+    
+    const partes = fechaStr.split('-');
+    if (partes.length !== 3) return fechaStr;
+    
+    return `${partes[2]}/${partes[1]}/${partes[0]}`;
+  };
+  
+  // Obtener el filtro de fecha actual basado en el tipo de filtro
+  const obtenerFiltroFecha = () => {
+    switch (filtros.tipoFiltro) {
+      case 'dia':
+        return filtros.rango.fin;
+      case 'rango':
+        return {
+          inicio: filtros.rango.inicio,
+          fin: filtros.rango.fin
+        };
+      case 'semana':
+      case 'mes':
+        // Para estos casos, puedes implementar lógica específica
+        // o simplemente devolver null para mostrar todos los datos
+        return null;
+      default:
+        return null;
+    }
   };
   
   // Renderizar pestaña según selección
@@ -52,7 +75,20 @@ const ModuloReportes = () => {
       case 'reportes':
         return (
           <div>
-            <h3 className="text-sm font-medium mb-3">Reportes Recientes</h3>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-medium">Reportes Recientes</h3>
+              
+              {/* Botón para mostrar/ocultar gráfico */}
+              <button
+                onClick={() => setMostrarGrafico(!mostrarGrafico)}
+                className={`px-3 py-1 text-xs rounded-md ${mostrarGrafico ? 'bg-blue-600 text-white' : 'bg-gray-100'}`}
+              >
+                <span className="flex items-center">
+                  <BarChart2 size={14} className="mr-1" />
+                  {mostrarGrafico ? 'Ocultar gráfico' : 'Mostrar gráfico'}
+                </span>
+              </button>
+            </div>
             
             {loading ? (
               <div className="flex justify-center py-8">
@@ -64,77 +100,75 @@ const ModuloReportes = () => {
                 <p className="text-sm text-yellow-600 mt-1">Verifica que la colección Reportes_Links tenga datos.</p>
               </div>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ID</th>
-                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Título</th>
-                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Fecha</th>
-                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Elaborado por</th>
-                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tipo</th>
-                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Acciones</th>
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
-                    {reportes.map((reporte, index) => (
-                      <tr key={reporte.id || index} className={index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
-                        <td className="px-3 py-2 text-sm text-gray-900">{reporte.id || `REP-${index}`}</td>
-                        <td className="px-3 py-2 text-sm text-gray-900 font-medium">{reporte.titulo || 'Sin título'}</td>
-                        <td className="px-3 py-2 text-sm text-gray-900">{reporte.fecha || 'Sin fecha'}</td>
-                        <td className="px-3 py-2 text-sm text-gray-900">{reporte.elaboradoPor || reporte.creadoPor || 'Desconocido'}</td>
-                        <td className="px-3 py-2 text-sm text-gray-900">
-                          <span className={`px-2 py-1 text-xs rounded-full 
-                            ${reporte.tipo === 'Semanal' ? 'bg-blue-100 text-blue-800' : 
-                            reporte.tipo === 'Especial' ? 'bg-purple-100 text-purple-800' : 
-                            'bg-green-100 text-green-800'}`}>
-                            {reporte.tipo || 'General'}
-                          </span>
-                        </td>
-                        <td className="px-3 py-2 text-sm text-gray-900">
-                          <div className="flex space-x-2">
-                            {reporte.enlaceSheet ? (
-                              <a 
-                                href={reporte.enlaceSheet} 
-                                target="_blank" 
-                                rel="noopener noreferrer"
-                                className="text-blue-600 hover:text-blue-800"
-                                title="Abrir hoja de cálculo"
-                              >
-                                <ExternalLink size={16} />
-                              </a>
-                            ) : reporte.enlaceDrive ? (
-                              <a 
-                                href={reporte.enlaceDrive} 
-                                target="_blank" 
-                                rel="noopener noreferrer"
-                                className="text-blue-600 hover:text-blue-800"
-                                title="Abrir en Drive"
-                              >
-                                <ExternalLink size={16} />
-                              </a>
-                            ) : (
-                              <span 
-                                className="text-gray-300 cursor-not-allowed"
-                                title="Enlace no disponible"
-                              >
-                                <ExternalLink size={16} />
-                              </span>
-                            )}
-                            <button 
-                              className="text-green-600 hover:text-green-800"
-                              onClick={() => generarEnlaceCompartir(reporte.id)}
-                              title="Compartir enlace"
-                            >
-                              <Share2 size={16} />
-                            </button>
-                          </div>
-                        </td>
+              <>
+                {/* Gráfico de valorización */}
+                {mostrarGrafico && (
+                  <GraficoReportes 
+                    reportes={reportes} 
+                    filtroFecha={obtenerFiltroFecha()}
+                  />
+                )}
+                
+                {/* Tabla de reportes */}
+                <div className={`overflow-x-auto ${mostrarGrafico ? 'mt-6' : ''}`}>
+                  <table className="min-w-full divide-y divide-gray-200">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Creado Por</th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Fecha</th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Subcontratista/Bloque</th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total Trabajadores</th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total Actividades</th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total Valorizado</th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Acciones</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                      {reportes.map((reporte, index) => (
+                        <tr key={reporte.id || reporte.reporteId || index} className={index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                          <td className="px-3 py-2 text-sm text-gray-900">{reporte.creadoPor || 'Sin datos'}</td>
+                          <td className="px-3 py-2 text-sm text-gray-900">{formatearFecha(reporte.fecha) || 'Sin datos'}</td>
+                          <td className="px-3 py-2 text-sm text-gray-900">{reporte.subcontratistaBLoque || reporte.subcontratistaBloque || 'Sin datos'}</td>
+                          <td className="px-3 py-2 text-sm text-gray-900">{reporte.totalTrabajadores || 0}</td>
+                          <td className="px-3 py-2 text-sm text-gray-900">{reporte.totalActividades || 0}</td>
+                          <td className={`px-3 py-2 text-sm font-medium ${(reporte.totalValorizado || 0) < 0 ? 'text-red-600' : 'text-gray-900'}`}>
+                            {formatoMoneda(reporte.totalValorizado || 0)}
+                          </td>
+                          <td className="px-3 py-2 text-sm text-gray-900">
+                            <div className="flex space-x-2">
+                              {reporte.enlaceSheet ? (
+                                <a 
+                                  href={reporte.enlaceSheet} 
+                                  target="_blank" 
+                                  rel="noopener noreferrer"
+                                  className="text-blue-600 hover:text-blue-800"
+                                  title="Abrir hoja de cálculo"
+                                >
+                                  <ExternalLink size={16} />
+                                </a>
+                              ) : (
+                                <span 
+                                  className="text-gray-300 cursor-not-allowed"
+                                  title="Enlace no disponible"
+                                >
+                                  <ExternalLink size={16} />
+                                </span>
+                              )}
+                              <button 
+                                className="text-green-600 hover:text-green-800"
+                                onClick={() => generarEnlaceCompartir(reporte.id || reporte.reporteId)}
+                                title="Compartir enlace"
+                              >
+                                <Share2 size={16} />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
             )}
             
             {mostrarEnlace && (
@@ -166,24 +200,23 @@ const ModuloReportes = () => {
           </div>
         );
         
-      // El resto del código permanece igual...
       case 'exportar':
-        // código existente para la pestaña exportar
+        // Mantener código existente para la pestaña exportar
         return (
-          // ... tu código actual
           <div>
             <h3 className="text-sm font-medium mb-3">Exportar Datos</h3>
-            {/* ... resto del código ... */}
+            {/* Contenido existente */}
+            <p className="text-sm text-gray-600">Funcionalidad de exportación en desarrollo.</p>
           </div>
         );
         
       case 'programacion':
-        // código existente para la pestaña programación
+        // Mantener código existente para la pestaña programación
         return (
-          // ... tu código actual
           <div>
             <h3 className="text-sm font-medium mb-3">Programación de Reportes</h3>
-            {/* ... resto del código ... */}
+            {/* Contenido existente */}
+            <p className="text-sm text-gray-600">Funcionalidad de programación en desarrollo.</p>
           </div>
         );
         

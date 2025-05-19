@@ -293,6 +293,7 @@ export const fetchKPIs = async (db, filters = {}) => {
 };
 
 // Función para obtener datos de reportes
+// Función modificada para obtener datos de reportes
 export const fetchReports = async (db, filters = {}, limitCount = 10) => {
   try {
     console.log(`Obteniendo hasta ${limitCount} reportes con filtros:`, filters);
@@ -339,19 +340,19 @@ export const fetchReports = async (db, filters = {}, limitCount = 10) => {
       console.log(`Se encontraron ${snapshot.docs.length} reportes en Reportes`);
     }
     
-    // Normalizar los datos
+    // Normalizar los datos con los campos requeridos
     const reportes = snapshot.docs.map(doc => {
       const data = doc.data();
       
-      // La fecha ya está en formato string YYYY-MM-DD
-      const fecha = data.fecha;
-      
       return {
         id: doc.id,
-        titulo: data.titulo || `Reporte ${doc.id}`,
-        fecha: fecha,
-        elaboradoPor: data.creadoPor || data.elaboradoPor || "desconocido",
-        tipo: data.tipo || "General",
+        reporteId: data.reporteId || doc.id,
+        creadoPor: data.creadoPor || "Sin datos",
+        fecha: data.fecha || new Date().toISOString().split('T')[0],
+        subcontratistaBLoque: data.subcontratistaBLoque || data.subcontratistaBloque || "Sin datos",
+        totalTrabajadores: data.totalTrabajadores || 0,
+        totalActividades: data.totalActividades || 0,
+        totalValorizado: data.totalValorizado || 0,
         enlaceSheet: data.enlaceSheet || data.spreadsheetUrl || data.enlaceDrive || ""
       };
     });
@@ -365,7 +366,6 @@ export const fetchReports = async (db, filters = {}, limitCount = 10) => {
     throw error;
   }
 };
-
 // Función para obtener distribución por categorías
 export const fetchDistributionByCategory = async (db, filters = {}) => {
   try {
