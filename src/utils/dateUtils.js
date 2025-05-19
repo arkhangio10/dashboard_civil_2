@@ -95,3 +95,68 @@ export const fechaLarga = (fecha) => {
   
   return `${dia} de ${mes} de ${ano}`;
 };
+// Función para convertir formato de fecha YYYY-MM-DD a DD/MM/YYYY
+export const formatearFechaParaMostrar = (fechaString) => {
+  if (!fechaString) return '';
+  
+  // Verificar si la fecha ya está en formato DD/MM/YYYY
+  if (fechaString.includes('/')) return fechaString;
+  
+  // Convertir de YYYY-MM-DD a DD/MM/YYYY
+  const partes = fechaString.split('-');
+  if (partes.length !== 3) return fechaString;
+  
+  return `${partes[2]}/${partes[1]}/${partes[0]}`;
+};
+
+// Función para convertir formato de fecha DD/MM/YYYY a YYYY-MM-DD
+export const formatearFechaParaGuardar = (fechaString) => {
+  if (!fechaString) return '';
+  
+  // Verificar si la fecha ya está en formato YYYY-MM-DD
+  if (fechaString.includes('-')) return fechaString;
+  
+  // Convertir de DD/MM/YYYY a YYYY-MM-DD
+  const partes = fechaString.split('/');
+  if (partes.length !== 3) return fechaString;
+  
+  return `${partes[2]}-${partes[1]}-${partes[0]}`;
+};
+
+// Función para convertir entre diferentes formatos de fecha
+export const normalizarFormatoFecha = (fecha, formatoSalida = 'YYYY-MM-DD') => {
+  if (!fecha) return '';
+  
+  // Convertir a objeto Date
+  let fechaObj;
+  if (typeof fecha === 'string') {
+    // Manejar diferentes formatos de entrada
+    if (fecha.includes('/')) {
+      // Formato DD/MM/YYYY
+      const [dia, mes, anio] = fecha.split('/');
+      fechaObj = new Date(anio, mes - 1, dia);
+    } else if (fecha.includes('-')) {
+      // Formato YYYY-MM-DD
+      fechaObj = new Date(fecha);
+    } else {
+      return fecha; // No se puede determinar el formato
+    }
+  } else if (fecha instanceof Date) {
+    fechaObj = fecha;
+  } else {
+    return ''; // Tipo no soportado
+  }
+  
+  // Crear fecha en formato solicitado
+  const dia = fechaObj.getDate().toString().padStart(2, '0');
+  const mes = (fechaObj.getMonth() + 1).toString().padStart(2, '0');
+  const anio = fechaObj.getFullYear();
+  
+  if (formatoSalida === 'DD/MM/YYYY') {
+    return `${dia}/${mes}/${anio}`;
+  } else if (formatoSalida === 'YYYY-MM-DD') {
+    return `${anio}-${mes}-${dia}`;
+  } else {
+    return fecha; // Formato de salida no soportado
+  }
+};

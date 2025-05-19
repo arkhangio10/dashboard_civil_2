@@ -7,6 +7,7 @@ import {
   generarMeses
 } from '../../utils/dateUtils';
 import DashboardContext from '../../context/DashboardContext';
+import { normalizarFormatoFecha } from '../../utils/dateUtils';
 
 const FiltroDashboard = () => {
   const { filtros, setFiltros } = useContext(DashboardContext);
@@ -17,12 +18,15 @@ const FiltroDashboard = () => {
     setFiltros(prev => ({ ...prev, tipoFiltro: tipo }));
   };
 
-  const cambiarFechaRango = (campo, valor) => {
-    setFiltros(prev => ({
-      ...prev,
-      rango: { ...prev.rango, [campo]: valor }
-    }));
-  };
+const cambiarFechaRango = (campo, valor) => {
+  // Normalizar al formato que usa Firebase (YYYY-MM-DD)
+  const fechaNormalizada = normalizarFormatoFecha(valor, 'YYYY-MM-DD');
+  
+  setFiltros(prev => ({
+    ...prev,
+    rango: { ...prev.rango, [campo]: fechaNormalizada }
+  }));
+};
 
   const cambiarSemana = (semana) => {
     setFiltros(prev => ({ ...prev, semana }));

@@ -1,209 +1,179 @@
-// src/components/dashboard/InitializeFirebase.js
-import React, { useState } from 'react';
-import { collection, getDocs, doc, setDoc, serverTimestamp } from 'firebase/firestore';
-import { useAuth } from '../../context/AuthContext';
-import { Database, AlertCircle, Check, RefreshCw } from 'lucide-react';
+// src/pages/Dashboard.js
+import React, { useState, useEffect } from 'react';
+import Sidebar from '../components/layout/Sidebar';
+import ProjectSelector from '../components/layout/ProjectSelector';
+import KpisDashboard from '../components/dashboard/KpisDashboard';
+import FiltroDashboard from '../components/dashboard/FiltroDashboard';
+import AnalisisCostos from '../components/dashboard/AnalisisCostos';
+import AnalisisProductividad from '../components/dashboard/AnalisisProductividad';
+import AnalisisTrabajadores from '../components/dashboard/AnalisisTrabajadores';
+import ModuloReportes from '../components/dashboard/ModuloReportes';
+import DataModeToggle from '../components/dashboard/DataModeToggle';
+import DebugFirebase from '../components/dashboard/DebugFirebase';
+import InitializeFirebase from '../components/dashboard/InitializeFirebase';
+import { DashboardProvider } from '../context/DashboardContext';
+import { useAuth } from '../context/AuthContext';
 
-const InitializeFirebase = () => {
-  const { db, selectedProject } = useAuth();
-  const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState(null);
-  
-  // Lista de colecciones a inicializar (debe coincidir con las que usa dashboard-integration.js)
-  const colecciones = [
-    "Reportes_Links",
-    "Spreadsheets",
-    "Partidas_Avance",
-    "Trabajadores",
-    "Actividades_Resumen",
-    "Actividades_Resumen_Diario",
-    "Actividades_Resumen_Mensual",
-    "Dashboard_Resumenes"
-  ];
+const Dashboard = () => {
+  const { currentUser } = useAuth();
+  const [moduloActivo, setModuloActivo] = useState('resumen');
+  const [menuMobile, setMenuMobile] = useState(false);
 
-  // Función para inicializar colecciones
-  const handleInitialize = async () => {
-    if (!db) {
-      setResult({
-        success: false,
-        message: "No hay conexión con Firebase. Verificar configuración."
-      });
-      return;
-    }
-    
-    setLoading(true);
-    setResult(null);
-    
-    try {
-      console.log("🔧 Inicializando colecciones requeridas para el dashboard...");
-      
-      // Crear documentos de inicialización para cada colección
-      const timestamp = serverTimestamp();
-      const resultados = [];
-      
-      for (const nombre of colecciones) {
-        try {
-          // Verificar si ya existe la colección
-          const coleccionRef = collection(db, nombre);
-          const snapshot = await getDocs(coleccionRef);
-          
-          if (snapshot.empty) {
-            // Si está vacía, crear documento inicial
-            const docRef = doc(db, nombre, "_init");
-            await setDoc(docRef, {
-              _inicializacion: true,
-              _descripcion: `Documento inicial para colección ${nombre}`,
-              creadoEn: timestamp
-            });
-            
-            resultados.push({ 
-              nombre, 
-              estado: "creada", 
-              fecha: new Date().toISOString() 
-            });
-          } else {
-            resultados.push({ 
-              nombre, 
-              estado: "existente", 
-              documentos: snapshot.size 
-            });
-          }
-        } catch (error) {
-          console.error(`Error al inicializar ${nombre}:`, error);
-          resultados.push({ 
-            nombre, 
-            estado: "error", 
-            error: error.message 
-          });
-        }
-      }
-      
-      setResult({
-        success: true,
-        message: "Proceso de inicialización completado",
-        colecciones: resultados
-      });
-      
-    } catch (error) {
-      console.error("Error en inicialización:", error);
-      setResult({
-        success: false,
-        message: `Error durante la inicialización: ${error.message}`
-      });
-    } finally {
-      setLoading(false);
+  useEffect(() => {
+    // Si lo necesitas, puedes implementar lógica adicional cuando el componente se monte
+    console.log('Dashboard montado');
+  }, []);
+
+  // Renderizar módulo según la selección
+  const renderizarModulo = () => {
+    switch (moduloActivo) {
+      case 'resumen':
+        return (
+          <>
+            <div className="grid grid-cols-1 gap-4 mb-4">
+              <KpisDashboard />
+            </div>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
+              <AnalisisCostos />
+              <AnalisisProductividad />
+            </div>
+          </>
+        );
+      case 'costos':
+        return <AnalisisCostos />;
+      case 'productividad':
+        return <AnalisisProductividad />;
+      case 'trabajadores':
+        return <AnalisisTrabajadores />;
+      case 'reportes':
+        return <ModuloReportes />;
+      case 'firebase':
+        return (
+          <div className="grid grid-cols-1 gap-4">
+            <DebugFirebase />
+            <InitializeFirebase />
+          </div>
+        );
+      default:
+        return <div>Selecciona un módulo del menú</div>;
     }
   };
 
   return (
-    <div className="bg-white p-4 rounded-lg shadow-md border border-gray-200">
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="text-lg font-semibold flex items-center">
-          <Database size={20} className="mr-2 text-blue-600" />
-          Inicializar Colecciones Firebase
-        </h2>
-      </div>
-      
-      <p className="text-sm text-gray-600 mb-4">
-        Esta herramienta inicializa las colecciones necesarias para el dashboard. 
-        Se crearán las siguientes colecciones si no existen:
-      </p>
-      
-      <div className="bg-gray-50 p-3 rounded-md border border-gray-200 mb-4">
-        <ul className="text-xs space-y-1">
-          {colecciones.map(coleccion => (
-            <li key={coleccion} className="flex items-center">
-              <span className="w-4 h-4 inline-block mr-2 bg-blue-100 rounded-full"></span>
-              {coleccion}
-            </li>
-          ))}
-        </ul>
-      </div>
-      
-      <button
-        onClick={handleInitialize}
-        disabled={loading}
-        className={`w-full flex items-center justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white ${
-          loading ? 'bg-gray-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'
-        }`}
-      >
-        {loading ? (
-          <>
-            <RefreshCw size={16} className="mr-2 animate-spin" />
-            Inicializando...
-          </>
-        ) : (
-          'Inicializar Colecciones'
-        )}
-      </button>
-      
-      {result && (
-        <div className={`mt-4 p-3 rounded-lg border ${
-          result.success 
-            ? 'bg-green-50 border-green-200 text-green-800' 
-            : 'bg-red-50 border-red-200 text-red-800'
-        }`}>
-          <div className="flex items-start">
-            {result.success ? (
-              <Check size={16} className="text-green-600 mr-2 mt-0.5" />
-            ) : (
-              <AlertCircle size={16} className="text-red-600 mr-2 mt-0.5" />
-            )}
-            <div>
-              <p className="font-medium">{result.message}</p>
+    <DashboardProvider>
+      <div className="flex h-screen bg-gray-100">
+        {/* Sidebar para desktop */}
+        <Sidebar moduloActivo={moduloActivo} setModuloActivo={setModuloActivo} />
+        
+        {/* Contenido principal */}
+        <div className="flex-1 flex flex-col overflow-hidden md:ml-64">
+          {/* Header */}
+          <header className="bg-white shadow-sm z-10">
+            <div className="px-4 py-3 flex items-center justify-between">
+              <div>
+                <h1 className="text-xl font-semibold text-gray-800">Dashboard Producción</h1>
+                <p className="text-sm text-gray-600">
+                  Bienvenido, {currentUser?.displayName || currentUser?.email || "Usuario"}
+                </p>
+              </div>
               
-              {result.success && result.colecciones && (
-                <div className="mt-2">
-                  <p className="text-sm font-medium mb-1">Resultado por colección:</p>
-                  <div className="max-h-40 overflow-y-auto">
-                    <table className="w-full text-xs">
-                      <thead>
-                        <tr className="bg-green-100">
-                          <th className="p-1 text-left">Colección</th>
-                          <th className="p-1 text-left">Estado</th>
-                          <th className="p-1 text-left">Detalles</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {result.colecciones.map((col, index) => (
-                          <tr 
-                            key={col.nombre} 
-                            className={index % 2 === 0 ? 'bg-green-50' : 'bg-white'}
-                          >
-                            <td className="p-1">{col.nombre}</td>
-                            <td className="p-1">
-                              <span className={`px-1.5 py-0.5 rounded-full text-xs ${
-                                col.estado === 'creada' 
-                                  ? 'bg-green-100 text-green-800' 
-                                  : col.estado === 'existente'
-                                    ? 'bg-blue-100 text-blue-800'
-                                    : 'bg-red-100 text-red-800'
-                              }`}>
-                                {col.estado}
-                              </span>
-                            </td>
-                            <td className="p-1">
-                              {col.documentos !== undefined && `${col.documentos} docs`}
-                              {col.error && <span className="text-red-600">{col.error}</span>}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
+              <div className="flex items-center space-x-4">
+                <ProjectSelector />
+                
+                {/* Botón para menú móvil */}
+                <button 
+                  className="md:hidden bg-blue-600 text-white p-2 rounded-md"
+                  onClick={() => setMenuMobile(!menuMobile)}
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16m-7 6h7" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+          </header>
+          
+          {/* Contenido principal con scroll */}
+          <main className="flex-1 overflow-y-auto p-4">
+            <div className="grid grid-cols-1 gap-4 mb-4">
+              <FiltroDashboard />
+              <DataModeToggle />
+            </div>
+            
+            {renderizarModulo()}
+          </main>
+        </div>
+        
+        {/* Menú móvil */}
+        {menuMobile && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 z-20 md:hidden">
+            <div className="bg-blue-800 text-white w-64 h-full p-4">
+              <div className="flex justify-between items-center mb-4">
+                <h2 className="text-lg font-bold">HERGONSA DASHBOARD</h2>
+                <button onClick={() => setMenuMobile(false)}>
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+              
+              <nav>
+                <button 
+                  onClick={() => {
+                    setModuloActivo('resumen');
+                    setMenuMobile(false);
+                  }}
+                  className={`flex items-center w-full px-4 py-3 mb-2 rounded-md ${moduloActivo === 'resumen' ? 'bg-blue-700' : 'hover:bg-blue-700'}`}
+                >
+                  <span>Resumen General</span>
+                </button>
+                
+                <button 
+                  onClick={() => {
+                    setModuloActivo('costos');
+                    setMenuMobile(false);
+                  }}
+                  className={`flex items-center w-full px-4 py-3 mb-2 rounded-md ${moduloActivo === 'costos' ? 'bg-blue-700' : 'hover:bg-blue-700'}`}
+                >
+                  <span>Análisis de Costos</span>
+                </button>
+                
+                <button 
+                  onClick={() => {
+                    setModuloActivo('productividad');
+                    setMenuMobile(false);
+                  }}
+                  className={`flex items-center w-full px-4 py-3 mb-2 rounded-md ${moduloActivo === 'productividad' ? 'bg-blue-700' : 'hover:bg-blue-700'}`}
+                >
+                  <span>Productividad</span>
+                </button>
+                
+                <button 
+                  onClick={() => {
+                    setModuloActivo('trabajadores');
+                    setMenuMobile(false);
+                  }}
+                  className={`flex items-center w-full px-4 py-3 mb-2 rounded-md ${moduloActivo === 'trabajadores' ? 'bg-blue-700' : 'hover:bg-blue-700'}`}
+                >
+                  <span>Trabajadores</span>
+                </button>
+                
+                <button 
+                  onClick={() => {
+                    setModuloActivo('reportes');
+                    setMenuMobile(false);
+                  }}
+                  className={`flex items-center w-full px-4 py-3 mb-2 rounded-md ${moduloActivo === 'reportes' ? 'bg-blue-700' : 'hover:bg-blue-700'}`}
+                >
+                  <span>Reportes</span>
+                </button>
+              </nav>
             </div>
           </div>
-        </div>
-      )}
-      
-      <p className="mt-4 text-xs text-gray-500">
-        Nota: Esta inicialización es un paso previo que prepara la estructura necesaria para que el 
-        dashboard funcione correctamente. No se borra ningún dato existente.
-      </p>
-    </div>
+        )}
+      </div>
+    </DashboardProvider>
   );
 };
 
-export default InitializeFirebase;
+export default Dashboard;

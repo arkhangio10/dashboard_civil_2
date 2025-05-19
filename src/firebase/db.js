@@ -271,30 +271,50 @@ export const fetchKPIs = async (db, filters = {}) => {
 };
 
 // Función para obtener datos de reportes
-export const fetchReports = async (db, limitCount = 10) => {
+// Función para obtener datos de reportes
+export const fetchReports = async (db, filters = {}, limitCount = 10) => {
   try {
-    console.log(`Obteniendo hasta ${limitCount} reportes...`);
+    console.log(`Obteniendo hasta ${limitCount} reportes con filtros:`, filters);
+    
+    // Extraer filtros de fecha si existen
+    const { dateRange, tipoFiltro } = filters;
+    let fechaFiltro = null;
+    
+    if (tipoFiltro === 'dia' && dateRange && dateRange.fin) {
+      fechaFiltro = dateRange.fin;
+      console.log(`Aplicando filtro de fecha para día específico: ${fechaFiltro}`);
+    }
     
     // Primero intentamos obtener de Reportes_Links
     let reportesRef = collection(db, 'Reportes_Links');
-    let reportesQuery = query(
-      reportesRef,
-      orderBy('fecha', 'desc'),
-      limit(limitCount)
-    );
+    let queryConstraints = [orderBy('fecha', 'desc')];
     
+    // Si hay filtro de fecha, agregarlo a la consulta
+    if (fechaFiltro) {
+      // Convertir formato de fecha YYYY-MM-DD a formato que coincida con la base de datos
+      queryConstraints.push(where('fecha', '==', fechaFiltro));
+    }
+    
+    // Limitar cantidad de resultados
+    queryConstraints.push(limit(limitCount));
+    
+    let reportesQuery = query(reportesRef, ...queryConstraints);
     let snapshot = await getDocs(reportesQuery);
-    console.log(`Se encontraron ${snapshot.docs.length} reportes en Reportes_Links`);
     
-    // Si no hay reportes en Reportes_Links, intentamos con Reportes
+    console.log(`Se encontraron ${snapshot.docs.length} reportes en Reportes_Links con los filtros aplicados`);
+    
+    // Si no hay reportes con los filtros aplicados, intentar sin filtros
+    if (snapshot.empty && fechaFiltro) {
+      console.log("No se encontraron reportes con filtro de fecha. Intentando sin filtro...");
+      reportesQuery = query(reportesRef, orderBy('fecha', 'desc'), limit(limitCount));
+      snapshot = await getDocs(reportesQuery);
+      console.log(`Se encontraron ${snapshot.docs.length} reportes sin filtro de fecha`);
+    }
+    
+    // Si sigue vacío, intentar con colección Reportes
     if (snapshot.empty) {
       reportesRef = collection(db, 'Reportes');
-      reportesQuery = query(
-        reportesRef,
-        orderBy('fecha', 'desc'),
-        limit(limitCount)
-      );
-      
+      reportesQuery = query(reportesRef, orderBy('fecha', 'desc'), limit(limitCount));
       snapshot = await getDocs(reportesQuery);
       console.log(`Se encontraron ${snapshot.docs.length} reportes en Reportes`);
     }
@@ -303,11 +323,8 @@ export const fetchReports = async (db, limitCount = 10) => {
     const reportes = snapshot.docs.map(doc => {
       const data = doc.data();
       
-      // Formatear fechas si son Timestamp
-      let fecha = data.fecha;
-      if (fecha instanceof Timestamp) {
-        fecha = fecha.toDate().toISOString().split('T')[0];
-      }
+      // La fecha ya está en formato string YYYY-MM-DD
+      const fecha = data.fecha;
       
       return {
         id: doc.id,
@@ -315,9 +332,12 @@ export const fetchReports = async (db, limitCount = 10) => {
         fecha: fecha,
         elaboradoPor: data.creadoPor || data.elaboradoPor || "desconocido",
         tipo: data.tipo || "General",
-        enlaceSheet: data.enlaceSheet || data.spreadsheetUrl || ""
+        enlaceSheet: data.enlaceSheet || data.spreadsheetUrl || data.enlaceDrive || ""
       };
     });
+    
+    // Log para depuración
+    console.log("Reportes procesados:", reportes);
     
     return reportes;
   } catch (error) {

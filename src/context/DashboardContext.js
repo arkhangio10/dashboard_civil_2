@@ -83,10 +83,11 @@ export const DashboardProvider = ({ children }) => {
       
       // Preparar filtros para las consultas
       const queryFilters = {
-        dateRange: filtros.tipoFiltro === 'rango' ? filtros.rango : null,
+        dateRange: filtros.tipoFiltro === 'rango' ? filtros.rango : 
+                  filtros.tipoFiltro === 'dia' ? { fin: filtros.rango.fin } : null,
+        tipoFiltro: filtros.tipoFiltro,
         category: filtros.categoria !== 'TODAS' ? filtros.categoria : null,
-        location: filtros.ubicacion !== 'TODAS' ? filtros.ubicacion : null,
-        tipoFiltro: filtros.tipoFiltro
+        location: filtros.ubicacion !== 'TODAS' ? filtros.ubicacion : null
       };
       
       // Cargar datos de Firebase en paralelo para mejorar rendimiento

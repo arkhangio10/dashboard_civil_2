@@ -9,7 +9,7 @@ const InitializeFirebase = () => {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
   
-  // Lista de colecciones a inicializar (debe coincidir con las que usa dashboard-integration.js)
+  // Lista de colecciones a inicializar
   const colecciones = [
     "Reportes_Links",
     "Spreadsheets",
