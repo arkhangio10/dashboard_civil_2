@@ -12,6 +12,9 @@ import AnalisisProductividad from '../components/dashboard/AnalisisProductividad
 import AnalisisTrabajadores from '../components/dashboard/AnalisisTrabajadores';
 import ModuloReportes from '../components/dashboard/ModuloReportes';
 
+// Importar el proveedor de contexto
+import { DashboardProvider } from '../context/DashboardContext';
+
 const Dashboard = () => {
   const [moduloActivo, setModuloActivo] = useState('resumen');
   const [menuMovilAbierto, setMenuMovilAbierto] = useState(false);
@@ -86,12 +89,13 @@ const Dashboard = () => {
   };
 
   return (
-    <div className="flex h-screen bg-gray-100">
-      {/* Sidebar para escritorio */}
-      <Sidebar 
-        moduloActivo={moduloActivo} 
-        setModuloActivo={setModuloActivo} 
-      />
+    <DashboardProvider>
+      <div className="flex h-screen bg-gray-100">
+        {/* Sidebar para escritorio */}
+        <Sidebar 
+          moduloActivo={moduloActivo} 
+          setModuloActivo={setModuloActivo} 
+        />
       
       {/* Contenido principal */}
       <div className="flex-1 md:ml-64 flex flex-col">
@@ -231,7 +235,7 @@ const Dashboard = () => {
           {renderizarContenido()}
         </main>
       </div>
-    </div>
+    </DashboardProvider>
   );
 };
 
