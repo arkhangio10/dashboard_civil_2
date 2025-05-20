@@ -542,96 +542,89 @@ export const fetchTrends = async (db, filters = {}) => {
 // Corrección para src/firebase/db.js
 
 // Añadir esta función corregida o modificar la existente
-export const fetchReportesAsociados = async (db, actividadId, maxLimit = 5) => {
+
+export const fetchReportesAsociados = async (db, actividadId, limit = 5) => {
   try {
-    // Verificar parámetros 
-    if (!db) {
-      console.error("Error: db es undefined o null");
-      return [];
-    }
+    // Primero, busca la actividad en Actividades_Resumen_Mensual
+    // El ID del documento es actividadId + periodo (mes actual)
+    const mes = new Date().toISOString().split('-').slice(0, 2).join('-');
+    const docId = `${actividadId}_${mes}`;
     
-    if (!actividadId) {
-      console.error("Error: actividadId es undefined o null");
-      return [];
-    }
+    console.log(`Buscando actividad con ID: ${docId}`);
     
-    console.log(`Obteniendo reportes asociados a la actividad: ${actividadId}, límite: ${maxLimit}`);
+    // Intentar buscar por el ID exacto primero
+    let actividadDoc = await getDoc(doc(db, "Actividades_Resumen_Mensual", docId));
     
-    // Importaciones necesarias (asegúrate de que están en la parte superior del archivo)
-    // import { collection, query, where, getDocs, orderBy, limit } from 'firebase/firestore';
-    
-    // Consulta optimizada para obtener solo los reportes necesarios
-    const reportesRef = collection(db, "Reportes_Links");
-    
-    // Nota importante: limit es una función de Firestore, por lo que nuestro parámetro
-    // debe tener un nombre diferente (maxLimit) para evitar confusiones
-    const reportesQuery = query(
-      reportesRef,
-      where("actividades", "array-contains", actividadId),
-      orderBy("fecha", "desc"),
-      limit(maxLimit) // Aquí usamos la función limit de Firestore con nuestro parámetro maxLimit
-    );
-    
-    const snapshot = await getDocs(reportesQuery);
-    
-    // Si no hay resultados, intentar con una consulta alternativa
-    if (snapshot.empty) {
-      console.log("No se encontraron reportes directamente asociados. Intentando búsqueda alternativa...");
-      
-      // Intentar buscar por nombre de actividad en reportes (estrategia alternativa)
-      const todosReportesQuery = query(
-        reportesRef,
-        orderBy("fecha", "desc"),
-        limit(20) // Buscamos en más reportes para encontrar coincidencias
+    // Si no existe, buscar por consulta donde actividadId coincida
+    if (!actividadDoc.exists()) {
+      console.log(`Documento no encontrado con ID exacto, buscando por actividadId: ${actividadId}`);
+      const q = query(
+        collection(db, "Actividades_Resumen_Mensual"),
+        where("actividadId", "==", actividadId),
+        limit(1)
       );
       
-      const todosSnapshot = await getDocs(todosReportesQuery);
-      
-      // Simular reportes si no hay datos reales
-      if (todosSnapshot.empty) {
-        console.log("No se encontraron reportes. Generando datos de ejemplo");
-        return [
-          {
-            id: `REP-SIM-${actividadId.substring(0, 5)}-001`,
-            reporteId: `REP-SIM-001`,
-            fecha: new Date().toISOString().split('T')[0],
-            creadoPor: 'Usuario del sistema',
-            elaboradoPor: 'Usuario del sistema',
-            enlaceSheet: 'https://docs.google.com/spreadsheets/d/ejemplo'
-          }
-        ];
+      const querySnapshot = await getDocs(q);
+      if (!querySnapshot.empty) {
+        actividadDoc = querySnapshot.docs[0];
       }
-      
-      return todosSnapshot.docs
-        .filter(doc => {
-          // Intentar encontrar coincidencias por actividades o descripción
-          const data = doc.data();
-          const actividadesArr = data.actividades || [];
-          const descripcion = (data.descripcion || "").toLowerCase();
-          
-          return actividadesArr.includes(actividadId) || 
-                 descripcion.includes(actividadId.toLowerCase());
-        })
-        .slice(0, maxLimit) // Limitar resultados manualmente
-        .map(doc => ({
-          id: doc.id,
-          reporteId: doc.id,
-          fecha: doc.data().fecha || '',
-          creadoPor: doc.data().creadoPor || doc.data().elaboradoPor || 'Sin datos',
-          elaboradoPor: doc.data().elaboradoPor || doc.data().creadoPor || 'Sin datos',
-          enlaceSheet: doc.data().spreadsheetUrl || doc.data().enlaceSheet || ''
-        }));
     }
     
-    // Procesamiento normal de los resultados
-    return snapshot.docs.map(doc => ({
-      id: doc.id,
-      reporteId: doc.id,
-      fecha: doc.data().fecha || '',
-      creadoPor: doc.data().creadoPor || doc.data().elaboradoPor || 'Sin datos',
-      elaboradoPor: doc.data().elaboradoPor || doc.data().creadoPor || 'Sin datos',
-      enlaceSheet: doc.data().spreadsheetUrl || doc.data().enlaceSheet || ''
-    }));
+    // Si aún no se encuentra, intentamos buscar por nombre
+    if (!actividadDoc || !actividadDoc.exists()) {
+      console.log(`No se encontró por actividadId, buscando por nombre: ${actividadId}`);
+      const q = query(
+        collection(db, "Actividades_Resumen_Mensual"),
+        where("nombre", "==", actividadId),
+        limit(1)
+      );
+      
+      const querySnapshot = await getDocs(q);
+      if (!querySnapshot.empty) {
+        actividadDoc = querySnapshot.docs[0];
+      } else {
+        console.log(`No se encontró la actividad: ${actividadId}`);
+        return [];
+      }
+    }
+    
+    // Verificar si tiene reportes
+    const actividadData = actividadDoc.data();
+    const reportesIds = actividadData.reportes || [];
+    
+    console.log(`Reportes encontrados para actividad ${actividadId}:`, reportesIds);
+    
+    if (reportesIds.length === 0) {
+      return [];
+    }
+    
+    // Limitar la cantidad de reportes según el parámetro
+    const reportesToGet = reportesIds.slice(0, limit);
+    
+    // Obtener los datos de cada reporte
+    const reportes = [];
+    for (const reporteId of reportesToGet) {
+      try {
+        const reporteDoc = await getDoc(doc(db, "Reportes_Links", reporteId));
+        
+        if (reporteDoc.exists()) {
+          const reporteData = reporteDoc.data();
+          reportes.push({
+            id: reporteDoc.id,
+            reporteId: reporteData.reporteId || reporteDoc.id,
+            fecha: reporteData.fecha || '',
+            creadoPor: reporteData.creadoPor || reporteData.creadorNombre || 'Sin datos',
+            enlaceSheet: reporteData.enlaceSheet || reporteData.spreadsheetUrl || ''
+          });
+        }
+      } catch (err) {
+        console.error(`Error al obtener reporte ${reporteId}:`, err);
+      }
+    }
+    
+    console.log(`Se obtuvieron ${reportes.length} reportes`);
+    return reportes;
+    
   } catch (error) {
     console.error("Error al obtener reportes asociados:", error);
     return [];
