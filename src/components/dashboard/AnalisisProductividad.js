@@ -13,9 +13,12 @@ import {
 } from 'lucide-react';
 import { useDashboard } from '../../context/DashboardContext';
 import { formatoMoneda, formatoNumero } from '../../utils/formatUtils';
+import { useAuth } from '../../context/AuthContext'; // Importamos useAuth para acceder a db
+import { fetchReportesAsociados } from '../../firebase/db'; // Importamos fetchReportesAsociados
 
 const AnalisisProductividad = () => {
   const { datos, loading, filtros } = useDashboard();
+  const { db } = useAuth(); // Obtenemos db desde el contexto de autenticación
   const [vistaActiva, setVistaActiva] = useState('actividades');
   const [actividadSeleccionada, setActividadSeleccionada] = useState(null);
   
@@ -114,12 +117,35 @@ const AnalisisProductividad = () => {
   };
   
   // Generar reportes simulados para la actividad
- // Reemplazar la función simulada en AnalisisProductividad.js
   const obtenerReportesActividad = async (actividad) => {
-    if (!actividad || !db) return [];
+    if (!actividad) return [];
+    
+    // Si no hay conexión a Firebase, o no tiene ID, usar datos simulados
+    if (!db || !actividad.id) {
+      console.log("Generando reportes simulados para actividad:", actividad.nombre);
+      // Datos simulados para pruebas
+      return [
+        { 
+          id: `REP-${Math.floor(Math.random() * 1000)}`, 
+          fecha: new Date().toISOString().split('T')[0],
+          creadoPor: "Usuario de prueba",
+          enlaceSheet: "https://docs.google.com/spreadsheets/d/example" 
+        },
+        { 
+          id: `REP-${Math.floor(Math.random() * 1000)}`, 
+          fecha: new Date(Date.now() - 86400000).toISOString().split('T')[0],
+          creadoPor: "Usuario de prueba 2",
+          enlaceSheet: "https://docs.google.com/spreadsheets/d/example2" 
+        }
+      ];
+    }
     
     try {
-      return await fetchReportesAsociados(db, actividad.id);
+      console.log("Obteniendo reportes reales para actividad ID:", actividad.id);
+      // Pasamos 5 como número, no como función
+      const reportes = await fetchReportesAsociados(db, actividad.id, 5);
+      console.log("Reportes obtenidos:", reportes);
+      return reportes;
     } catch (error) {
       console.error("Error al obtener reportes:", error);
       return [];
@@ -376,25 +402,29 @@ const AnalisisProductividad = () => {
                   
                   <div className="bg-white p-3 rounded-lg border border-blue-100">
                     <h4 className="font-medium text-blue-800 mb-2">Reportes asociados</h4>
-                    {obtenerReportesActividad(actividadSeleccionada).length > 0 ? (
+                    {reportesActividad.length > 0 ? (
                       <div className="space-y-2 max-h-52 overflow-y-auto">
-                        {obtenerReportesActividad(actividadSeleccionada).map((reporte, index) => (
+                        {reportesActividad.map((reporte, index) => (
                           <div key={index} className="p-2 bg-blue-50 rounded-md text-sm border border-blue-100">
                             <div className="flex justify-between items-center">
                               <span className="font-medium">{reporte.id}</span>
                               <span className="text-gray-600 text-xs">{reporte.fecha}</span>
                             </div>
-                            <p className="text-xs text-gray-600 mt-1">Por: {reporte.elaboradoPor}</p>
+                            <p className="text-xs text-gray-600 mt-1">Por: {reporte.creadoPor || reporte.elaboradoPor || 'Sin datos'}</p>
                             <div className="mt-1">
-                              <a 
-                                href={reporte.enlaceSheet} 
-                                target="_blank" 
-                                rel="noopener noreferrer"
-                                className="flex items-center text-blue-600 text-xs hover:text-blue-800"
-                              >
-                                <ExternalLink size={12} className="mr-1" />
-                                Ver reporte
-                              </a>
+                              {reporte.enlaceSheet ? (
+                                <a 
+                                  href={reporte.enlaceSheet} 
+                                  target="_blank" 
+                                  rel="noopener noreferrer"
+                                  className="flex items-center text-blue-600 text-xs hover:text-blue-800"
+                                >
+                                  <ExternalLink size={12} className="mr-1" />
+                                  Ver reporte
+                                </a>
+                              ) : (
+                                <span className="text-xs text-gray-500">No hay enlace disponible</span>
+                              )}
                             </div>
                           </div>
                         ))}
@@ -629,13 +659,17 @@ const AnalisisProductividad = () => {
   useEffect(() => {
     const cargarReportesActividad = async () => {
       if (actividadSeleccionada) {
+        console.log("Cargando reportes para actividad seleccionada:", actividadSeleccionada.nombre);
         const reportes = await obtenerReportesActividad(actividadSeleccionada);
+        console.log("Reportes cargados:", reportes);
         setReportesActividad(reportes);
+      } else {
+        setReportesActividad([]);
       }
     };
     
     cargarReportesActividad();
-  }, [actividadSeleccionada]);
+  }, [actividadSeleccionada, db]);
 
   
   return (
