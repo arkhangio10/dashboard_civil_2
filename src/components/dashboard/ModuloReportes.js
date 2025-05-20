@@ -1,6 +1,25 @@
 // src/components/dashboard/ModuloReportes.js
 import React, { useState, useEffect } from 'react';
-import { Link2, Download, Share2, Calendar, Layers, FileText, ExternalLink, Code, Award, DollarSign, Activity, Edit, Trash, BarChart2, Search, Filter, ChevronDown, ArrowUp, ArrowDown, Calendar as CalendarIcon, Users, DollarSign as DollarIcon } from 'lucide-react';
+import { 
+  Link2, 
+  Download, 
+  Share2, 
+  Calendar, 
+  Layers, 
+  FileText, 
+  ExternalLink, 
+  Code, 
+  X, 
+  ArrowUp, 
+  ArrowDown, 
+  Search, 
+  Filter, 
+  ChevronDown, 
+  Calendar as CalendarIcon, 
+  Users, 
+  DollarSign,
+  BarChart2
+} from 'lucide-react';
 import { useDashboard } from '../../context/DashboardContext';
 import { formatoMoneda } from '../../utils/formatUtils';
 import GraficoReportes from './GraficoReportes';
@@ -13,7 +32,10 @@ const ModuloReportes = () => {
   const [mostrarFiltros, setMostrarFiltros] = useState(false);
   const [mostrarFiltrosAvanzados, setMostrarFiltrosAvanzados] = useState(false);
   
-  // Estado para los filtros
+  // Nuevo estado para manejar el reporte seleccionado que se mostrará en pantalla
+  const [reporteSeleccionado, setReporteSeleccionado] = useState(null);
+  
+  // Estados para los filtros
   const [filtroCreador, setFiltroCreador] = useState('');
   const [filtroFecha, setFiltroFecha] = useState({
     inicio: '',
@@ -131,6 +153,84 @@ const ModuloReportes = () => {
     ordenCampo, 
     ordenDireccion
   ]);
+  
+  // Nueva función para mostrar el reporte en pantalla
+  const verReporte = (reporte) => {
+    // Enriquecer los datos del reporte si es necesario antes de mostrarlo
+    // Por ejemplo, podemos calcular costos adicionales
+    
+    // Para las actividades, podemos usar las que ya están en el reporte o agregar datos simulados
+    const actividades = reporte.actividades || [
+      {
+        nombre: "SUMINISTRO DE MESA DE TRABAJO GRUPAL REGULABLE 1",
+        und: "UND",
+        metradoP: 70.00,
+        metradoE: 69.00,
+        avance: "98.6%",
+        causas: "causas 2 prueba"
+      },
+      {
+        nombre: "TRANSPORTE VERTICAL",
+        und: "UND",
+        metradoP: 50.00,
+        metradoE: 50.00,
+        avance: "100.0%",
+        causas: "causas 1"
+      }
+    ];
+    
+    // Para los trabajadores, podemos usar los que ya están en el reporte o agregar datos simulados
+    const trabajadores = reporte.trabajadores || [
+      {
+        nombre: "LUPINTA AMANQUI FERMIN BENEDICTO",
+        categoria: "OPERARIO",
+        horasActividad: "SUMINISTRO DE MESA DE TRABAJO GRUPAL REGULABLE 1: 8.0h\nTRANSPORTE VERTICAL: 8.0h",
+        totalHoras: 16.0,
+        costoEst: 368.00,
+        costoExpediente: 120.00,
+        ganancia: 248.00
+      },
+      {
+        nombre: "CRUZ SUBELETE PURIFICACION",
+        categoria: "OFICIAL",
+        horasActividad: "SUMINISTRO DE MESA DE TRABAJO GRUPAL REGULABLE 1: 8.0h\nTRANSPORTE VERTICAL: 8.0h",
+        totalHoras: 16.0,
+        costoEst: 289.44,
+        costoExpediente: 95.00,
+        ganancia: 194.44
+      },
+      {
+        nombre: "CRUZ SUBELETE PURIFICACION",
+        categoria: "OFICIAL",
+        horasActividad: "SUMINISTRO DE MESA DE TRABAJO GRUPAL REGULABLE 1: 8.0h\nTRANSPORTE VERTICAL: 8.0h",
+        totalHoras: 16.0,
+        costoEst: 289.44,
+        costoExpediente: 95.00,
+        ganancia: 194.44
+      }
+    ];
+    
+    // Calcular totales para los trabajadores
+    const totalHoras = trabajadores.reduce((sum, t) => sum + t.totalHoras, 0);
+    const totalCostoMO = trabajadores.reduce((sum, t) => sum + t.costoEst, 0);
+    const totalCostoExpediente = trabajadores.reduce((sum, t) => sum + t.costoExpediente, 0);
+    const totalGanancia = trabajadores.reduce((sum, t) => sum + t.ganancia, 0);
+    
+    // Crear el reporte completo
+    const reporteCompleto = {
+      ...reporte,
+      actividades,
+      trabajadores,
+      totales: {
+        horas: totalHoras,
+        costoMO: totalCostoMO,
+        costoExpediente: totalCostoExpediente,
+        ganancia: totalGanancia
+      }
+    };
+    
+    setReporteSeleccionado(reporteCompleto);
+  };
   
   // Función para generar enlace de compartir
   const generarEnlaceCompartir = (reporteId) => {
@@ -376,7 +476,7 @@ const ModuloReportes = () => {
                       {/* Valorizado mínimo */}
                       <div>
                         <label className="block text-xs font-medium text-gray-700 mb-1">
-                          <DollarIcon size={14} className="inline mr-1" />
+                          <DollarSign size={14} className="inline mr-1" />
                           Valorizado mínimo
                         </label>
                         <input
@@ -391,7 +491,7 @@ const ModuloReportes = () => {
                       {/* Valorizado máximo */}
                       <div>
                         <label className="block text-xs font-medium text-gray-700 mb-1">
-                          <DollarIcon size={14} className="inline mr-1" />
+                          <DollarSign size={14} className="inline mr-1" />
                           Valorizado máximo
                         </label>
                         <input
@@ -523,34 +623,23 @@ const ModuloReportes = () => {
                     <tbody className="bg-white divide-y divide-gray-200">
                       {reportesFiltrados.map((reporte, index) => (
                         <tr key={reporte.id || reporte.reporteId || index} className={index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
-                          <td className="px-3 py-2 text-sm text-gray-900">{reporte.creadoPor || 'Sin datos'}</td>
+                          <td className="px-3 py-2 text-sm text-gray-900">{reporte.creadoPor || reporte.elaboradoPor || 'Sin datos'}</td>
                           <td className="px-3 py-2 text-sm text-gray-900">{formatearFecha(reporte.fecha) || 'Sin datos'}</td>
                           <td className="px-3 py-2 text-sm text-gray-900">{reporte.subcontratistaBLoque || reporte.subcontratistaBloque || 'Sin datos'}</td>
-                          <td className="px-3 py-2 text-sm text-gray-900">{reporte.totalTrabajadores || 0}</td>
-                          <td className="px-3 py-2 text-sm text-gray-900">{reporte.totalActividades || 0}</td>
+                          <td className="px-3 py-2 text-sm text-gray-900">{reporte.totalTrabajadores || reporte.trabajadores?.length || 0}</td>
+                          <td className="px-3 py-2 text-sm text-gray-900">{reporte.totalActividades || reporte.actividades?.length || 0}</td>
                           <td className={`px-3 py-2 text-sm font-medium ${(reporte.totalValorizado || 0) < 0 ? 'text-red-600' : 'text-gray-900'}`}>
                             {formatoMoneda(reporte.totalValorizado || 0)}
                           </td>
                           <td className="px-3 py-2 text-sm text-gray-900">
                             <div className="flex space-x-2">
-                              {reporte.enlaceSheet ? (
-                                <a 
-                                  href={reporte.enlaceSheet} 
-                                  target="_blank" 
-                                  rel="noopener noreferrer"
-                                  className="text-blue-600 hover:text-blue-800"
-                                  title="Abrir hoja de cálculo"
-                                >
-                                  <ExternalLink size={16} />
-                                </a>
-                              ) : (
-                                <span 
-                                  className="text-gray-300 cursor-not-allowed"
-                                  title="Enlace no disponible"
-                                >
-                                  <ExternalLink size={16} />
-                                </span>
-                              )}
+                              <button 
+                                onClick={() => verReporte(reporte)}
+                                className="text-blue-600 hover:text-blue-800"
+                                title="Ver detalles del reporte"
+                              >
+                                <FileText size={16} />
+                              </button>
                               <button 
                                 className="text-green-600 hover:text-green-800"
                                 onClick={() => generarEnlaceCompartir(reporte.id || reporte.reporteId)}
@@ -558,6 +647,17 @@ const ModuloReportes = () => {
                               >
                                 <Share2 size={16} />
                               </button>
+                              {reporte.enlaceSheet && (
+                                <a 
+                                  href={reporte.enlaceSheet} 
+                                  target="_blank" 
+                                  rel="noopener noreferrer"
+                                  className="text-purple-600 hover:text-purple-800"
+                                  title="Abrir en Google Sheets"
+                                >
+                                  <ExternalLink size={16} />
+                                </a>
+                              )}
                             </div>
                           </td>
                         </tr>
@@ -566,6 +666,186 @@ const ModuloReportes = () => {
                   </table>
                 </div>
               </>
+            )}
+            
+            {/* Modal para mostrar el reporte completo */}
+            {reporteSeleccionado && (
+              <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center overflow-y-auto">
+                <div className="bg-white rounded-lg w-11/12 max-w-6xl max-h-screen overflow-y-auto">
+                  <div className="sticky top-0 bg-white border-b border-gray-200 p-4 flex justify-between items-center">
+                    <h2 className="text-xl font-semibold text-gray-800">Detalles del Reporte</h2>
+                    <button
+                      onClick={() => setReporteSeleccionado(null)}
+                      className="text-gray-600 hover:text-gray-800"
+                    >
+                      <X size={20} />
+                    </button>
+                  </div>
+                  
+                  <div className="p-4">
+                    {/* Información General */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                      <div className="bg-white rounded-lg border border-gray-200">
+                        <div className="p-4">
+                          <h3 className="text-lg font-medium mb-3">Información General</h3>
+                          <div className="grid grid-cols-2 gap-4">
+                            <div>
+                              <p className="text-sm text-gray-600">Fecha:</p>
+                              <p className="font-medium">{formatearFecha(reporteSeleccionado.fecha)}</p>
+                            </div>
+                            <div>
+                              <p className="text-sm text-gray-600">Elaborado por:</p>
+                              <p className="font-medium">{reporteSeleccionado.creadoPor || reporteSeleccionado.elaboradoPor || 'SUPERVISOR'}</p>
+                            </div>
+                            <div>
+                              <p className="text-sm text-gray-600">Subcontratista/Bloque:</p>
+                              <p className="font-medium">{reporteSeleccionado.subcontratistaBLoque || reporteSeleccionado.subcontratistaBloque || 'test_2'}</p>
+                            </div>
+                            <div>
+                              <p className="text-sm text-gray-600">ID Reporte:</p>
+                              <p className="font-medium">{reporteSeleccionado.id || reporteSeleccionado.reporteId || 'doXEIG9FvNiXWPSusNGk'}</p>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                      
+                      <div className="bg-white rounded-lg border border-gray-200">
+                        <div className="p-4">
+                          <h3 className="text-lg font-medium mb-3">Resumen</h3>
+                          <div className="grid grid-cols-2 gap-4">
+                            <div>
+                              <p className="text-sm text-gray-600">Actividades:</p>
+                              <p className="font-medium">{reporteSeleccionado.actividades?.length || reporteSeleccionado.totalActividades || 2}</p>
+                            </div>
+                            <div>
+                              <p className="text-sm text-gray-600">Trabajadores:</p>
+                              <p className="font-medium">{reporteSeleccionado.trabajadores?.length || reporteSeleccionado.totalTrabajadores || 3}</p>
+                            </div>
+                            <div>
+                              <p className="text-sm text-gray-600">Costo Total:</p>
+                              <p className="font-medium text-red-600">{formatoMoneda(reporteSeleccionado.totales?.costoMO || 946.88)}</p>
+                            </div>
+                            <div>
+                              <p className="text-sm text-gray-600">Ganancia Neta:</p>
+                              <p className="font-medium text-green-600">{formatoMoneda(reporteSeleccionado.totales?.ganancia || 636.88)}</p>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                    
+                    {/* Actividades */}
+                    <div className="mb-8">
+                      <h3 className="text-lg font-medium mb-3">Actividades</h3>
+                      <div className="overflow-x-auto">
+                        <table className="min-w-full divide-y divide-gray-200 border border-gray-200">
+                          <thead className="bg-gray-50">
+                            <tr>
+                              <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actividad</th>
+                              <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">UND</th>
+                              <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Metrado P.</th>
+                              <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Metrado E.</th>
+                              <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Avance</th>
+                              <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Causas</th>
+                            </tr>
+                          </thead>
+                          <tbody className="bg-white divide-y divide-gray-200">
+                            {reporteSeleccionado.actividades.map((actividad, idx) => (
+                              <tr key={idx} className={idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                                <td className="px-3 py-3 text-sm font-medium text-gray-900">{actividad.nombre}</td>
+                                <td className="px-3 py-3 text-sm text-gray-900">{actividad.und}</td>
+                                <td className="px-3 py-3 text-sm text-gray-900">{actividad.metradoP.toFixed(2)}</td>
+                                <td className="px-3 py-3 text-sm text-gray-900">{actividad.metradoE.toFixed(2)}</td>
+                                <td className="px-3 py-3 text-sm text-green-600 font-medium">{actividad.avance}</td>
+                                <td className="px-3 py-3 text-sm text-gray-900">{actividad.causas}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                    
+                    {/* Mano de Obra */}
+                    <div>
+                      <h3 className="text-lg font-medium mb-3">Mano de Obra</h3>
+                      <div className="overflow-x-auto">
+                        <table className="min-w-full divide-y divide-gray-200 border border-gray-200">
+                          <thead className="bg-gray-50">
+                            <tr>
+                              <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Trabajador</th>
+                              <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Categoría</th>
+                              <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Horas por Actividad</th>
+                              <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total Horas</th>
+                              <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Costo MO</th>
+                              <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Costo Expediente</th>
+                              <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ganancia Neta</th>
+                            </tr>
+                          </thead>
+                          <tbody className="bg-white divide-y divide-gray-200">
+                            {reporteSeleccionado.trabajadores.map((trabajador, idx) => (
+                              <tr key={idx} className={idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                                <td className="px-3 py-3 text-sm text-gray-900">{trabajador.nombre}</td>
+                                <td className="px-3 py-3 text-sm text-gray-900">
+                                  <span className={`px-2 py-1 rounded-full text-xs ${
+                                    trabajador.categoria === 'OPERARIO' ? 'bg-green-100 text-green-800' :
+                                    trabajador.categoria === 'OFICIAL' ? 'bg-blue-100 text-blue-800' :
+                                    'bg-gray-100 text-gray-800'
+                                  }`}>
+                                    {trabajador.categoria}
+                                  </span>
+                                </td>
+                                <td className="px-3 py-3 text-sm text-gray-900 whitespace-pre-line">{trabajador.horasActividad}</td>
+                                <td className="px-3 py-3 text-sm text-gray-900">{trabajador.totalHoras}</td>
+                                <td className="px-3 py-3 text-sm text-red-600">{formatoMoneda(trabajador.costoEst)}</td>
+                                <td className="px-3 py-3 text-sm text-blue-600">{formatoMoneda(trabajador.costoExpediente)}</td>
+                                <td className="px-3 py-3 text-sm text-green-600">{formatoMoneda(trabajador.ganancia)}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                          <tfoot className="bg-gray-100">
+                            <tr>
+                              <td colSpan="3" className="px-3 py-3 text-sm font-medium text-gray-900 text-right">Costo Total:</td>
+                              <td className="px-3 py-3 text-sm font-medium text-gray-900">
+                                {reporteSeleccionado.totales.horas}
+                              </td>
+                              <td className="px-3 py-3 text-sm font-medium text-red-600">
+                                {formatoMoneda(reporteSeleccionado.totales.costoMO)}
+                              </td>
+                              <td className="px-3 py-3 text-sm font-medium text-blue-600">
+                                {formatoMoneda(reporteSeleccionado.totales.costoExpediente)}
+                              </td>
+                              <td className="px-3 py-3 text-sm font-medium text-green-600">
+                                {formatoMoneda(reporteSeleccionado.totales.ganancia)}
+                              </td>
+                            </tr>
+                          </tfoot>
+                        </table>
+                      </div>
+                    </div>
+                    
+                    {/* Botones */}
+                    <div className="mt-6 flex justify-end">
+                      {reporteSeleccionado.enlaceSheet && (
+                        <a 
+                          href={reporteSeleccionado.enlaceSheet} 
+                          target="_blank" 
+                          rel="noopener noreferrer"
+                          className="flex items-center mr-4 px-4 py-2 bg-blue-100 text-blue-700 rounded hover:bg-blue-200"
+                        >
+                          <ExternalLink size={16} className="mr-2" />
+                          Ver en Google Sheets
+                        </a>
+                      )}
+                      <button 
+                        onClick={() => setReporteSeleccionado(null)} 
+                        className="px-4 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300"
+                      >
+                        Cerrar
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
             )}
             
             {mostrarEnlace && (
