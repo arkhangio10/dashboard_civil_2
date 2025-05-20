@@ -27,6 +27,7 @@ const AnalisisProductividad = () => {
   
   // Datos de actividades desde el contexto del dashboard
   const actividades = datos.actividades || [];
+  const [reportesActividad, setReportesActividad] = useState([]);
   
   // Ordenar y filtrar actividades según los criterios seleccionados
   const actividadesFiltradas = React.useMemo(() => {
@@ -113,27 +114,16 @@ const AnalisisProductividad = () => {
   };
   
   // Generar reportes simulados para la actividad
-  const obtenerReportesActividad = (actividad) => {
-    if (!actividad) return [];
+ // Reemplazar la función simulada en AnalisisProductividad.js
+  const obtenerReportesActividad = async (actividad) => {
+    if (!actividad || !db) return [];
     
-    // En una implementación real, estos datos vendrían de Firebase
-    // Generamos datos simulados para la demostración
-    const reportes = [];
-    const numReportes = Math.floor(Math.random() * 3) + 2; // 2-4 reportes
-    
-    for (let i = 0; i < numReportes; i++) {
-      const fecha = new Date();
-      fecha.setDate(fecha.getDate() - (i * 7)); // Cada 7 días hacia atrás
-      
-      reportes.push({
-        id: `REP-${Math.floor(Math.random() * 1000) + 1000}`,
-        fecha: fecha.toISOString().split('T')[0],
-        elaboradoPor: ['Juan Pérez', 'María López', 'Carlos Rodríguez'][Math.floor(Math.random() * 3)],
-        enlaceSheet: `https://docs.google.com/spreadsheets/d/example${i+1}`
-      });
+    try {
+      return await fetchReportesAsociados(db, actividad.id);
+    } catch (error) {
+      console.error("Error al obtener reportes:", error);
+      return [];
     }
-    
-    return reportes;
   };
   
   // Método para aplicar filtros
@@ -636,6 +626,18 @@ const AnalisisProductividad = () => {
     }
   };
 
+  useEffect(() => {
+    const cargarReportesActividad = async () => {
+      if (actividadSeleccionada) {
+        const reportes = await obtenerReportesActividad(actividadSeleccionada);
+        setReportesActividad(reportes);
+      }
+    };
+    
+    cargarReportesActividad();
+  }, [actividadSeleccionada]);
+
+  
   return (
     <div className="bg-white p-4 rounded-lg shadow-md border border-gray-200">
       <div className="flex items-center justify-between mb-4">

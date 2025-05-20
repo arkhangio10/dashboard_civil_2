@@ -538,6 +538,33 @@ export const fetchTrends = async (db, filters = {}) => {
   }
 };
 
+// Añadir esta función en src/firebase/db.js
+export const fetchReportesAsociados = async (db, actividadId, limit = 5) => {
+  try {
+    // Consulta optimizada para obtener solo los reportes necesarios
+    const reportesRef = collection(db, "Reportes_Links");
+    const reportesQuery = query(
+      reportesRef,
+      where("actividades", "array-contains", actividadId),
+      orderBy("fecha", "desc"),
+      limit(limit)
+    );
+    
+    const snapshot = await getDocs(reportesQuery);
+    
+    return snapshot.docs.map(doc => ({
+      id: doc.id,
+      reporteId: doc.id,
+      fecha: doc.data().fecha || '',
+      creadoPor: doc.data().creadoPor || doc.data().elaboradoPor || 'Sin datos',
+      enlaceSheet: doc.data().spreadsheetUrl || doc.data().enlaceSheet || ''
+    }));
+  } catch (error) {
+    console.error("Error al obtener reportes asociados:", error);
+    return [];
+  }
+};
+
 // Exportamos todas las funciones
 export {
   // Si se necesitan más funciones específicas
