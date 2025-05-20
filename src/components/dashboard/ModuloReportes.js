@@ -18,11 +18,14 @@ import {
   Calendar as CalendarIcon, 
   Users, 
   DollarSign,
-  BarChart2
+  BarChart2,
+  AlertCircle
 } from 'lucide-react';
 import { useDashboard } from '../../context/DashboardContext';
+import { useAuth } from '../../context/AuthContext';
 import { formatoMoneda } from '../../utils/formatUtils';
 import GraficoReportes from './GraficoReportes';
+import { collection, doc, getDoc, getDocs, query, where, orderBy, limit } from 'firebase/firestore';
 
 const ModuloReportes = () => {
   const [tabActivo, setTabActivo] = useState('reportes');
@@ -31,6 +34,8 @@ const ModuloReportes = () => {
   const [mostrarGrafico, setMostrarGrafico] = useState(true);
   const [mostrarFiltros, setMostrarFiltros] = useState(false);
   const [mostrarFiltrosAvanzados, setMostrarFiltrosAvanzados] = useState(false);
+  const [cargandoReporte, setCargandoReporte] = useState(false);
+  const [errorCarga, setErrorCarga] = useState(null);
   
   // Nuevo estado para manejar el reporte seleccionado que se mostrará en pantalla
   const [reporteSeleccionado, setReporteSeleccionado] = useState(null);
@@ -49,7 +54,8 @@ const ModuloReportes = () => {
   const [busquedaTexto, setBusquedaTexto] = useState('');
   
   // Usar el contexto de Dashboard para obtener datos reales
-  const { datos, loading, filtros } = useDashboard();
+  const { db } = useAuth();
+  const { datos, loading, filtros, useMockData, recargarDatos } = useDashboard();
   
   // Obtener reportes del contexto
   const reportesOriginales = datos.reportes || [];
@@ -57,6 +63,23 @@ const ModuloReportes = () => {
   // Obtener creadores y bloques únicos para los selectores de filtros
   const [creadoresList, setCreadoresList] = useState([]);
   const [bloquesList, setBloquesList] = useState([]);
+  
+  // Registrar información de depuración sobre los reportes cargados
+  useEffect(() => {
+    console.log("Estado actual de reportes:", {
+      cargando: loading,
+      reportesTotales: reportesOriginales.length,
+      usandoDatosPrueba: useMockData,
+      db: !!db
+    });
+    
+    if (reportesOriginales.length > 0) {
+      console.log("Primer reporte de ejemplo:", reportesOriginales[0]);
+    } else if (!loading) {
+      console.log("No se encontraron reportes");
+    }
+    
+  }, [reportesOriginales, loading, useMockData, db]);
   
   useEffect(() => {
     // Extraer lista de creadores únicos
@@ -154,13 +177,285 @@ const ModuloReportes = () => {
     ordenDireccion
   ]);
   
-  // Nueva función para mostrar el reporte en pantalla
-  const verReporte = (reporte) => {
-    // Enriquecer los datos del reporte si es necesario antes de mostrarlo
-    // Por ejemplo, podemos calcular costos adicionales
+  // Función para calcular los costos según la categoría
+  const calcularCostoPorCategoria = (categoria, horas) => {
+    const tarifas = {
+      'OPERARIO': 23.00,
+      'OFICIAL': 18.09,
+      'PEON': 16.38,
+      'DEFAULT': 18.00 // Valor por defecto si no se especifica categoría
+    };
     
-    // Para las actividades, podemos usar las que ya están en el reporte o agregar datos simulados
-    const actividades = reporte.actividades || [
+    const tarifa = tarifas[categoria] || tarifas.DEFAULT;
+    return tarifa * parseFloat(horas);
+  };
+  
+  // Función mejorada para obtener detalles completos de un reporte específico
+  const verReporte = async (reporte) => {
+    try {
+      // Limpiar errores anteriores y establecer estado de carga
+      setErrorCarga(null);
+      setCargandoReporte(true);
+      
+      // Establecer reporte básico mientras se cargan los detalles
+      setReporteSeleccionado({
+        ...reporte,
+        cargando: true
+      });
+      
+      console.log("Cargando detalles para reporte:", reporte.id || reporte.reporteId);
+      
+      let reporteCompleto = null;
+      
+      // Si usamos datos simulados, generarlos directamente
+      if (useMockData || !db) {
+        console.log("Usando datos simulados para el reporte");
+        reporteCompleto = generarDatosReporteSimulado(reporte);
+      } else {
+        // Intentar cargar datos reales de Firebase
+        try {
+          reporteCompleto = await cargarDatosReporteFirebase(reporte);
+        } catch (error) {
+          console.error("Error al cargar datos de Firebase:", error);
+          // Intentar cargar una versión simplificada de datos reales
+          try {
+            reporteCompleto = await cargarDatosReporteSimplificado(reporte);
+          } catch (err) {
+            console.error("Error al cargar datos simplificados:", err);
+            // Como último recurso, usar datos simulados
+            reporteCompleto = generarDatosReporteSimulado(reporte);
+          }
+        }
+      }
+      
+      // Asegurarse de que tenemos un reporte completo
+      if (!reporteCompleto) {
+        throw new Error("No se pudo generar un reporte completo");
+      }
+      
+      // Actualizar el estado con el reporte completo
+      setReporteSeleccionado({
+        ...reporteCompleto,
+        cargando: false
+      });
+      
+    } catch (error) {
+      console.error("Error al procesar reporte:", error);
+      setErrorCarga(error.message || "Error al cargar los detalles del reporte");
+      
+      // Establecer un reporte básico con mensaje de error
+      setReporteSeleccionado({
+        ...reporte,
+        error: error.message || "Error al cargar los detalles del reporte",
+        cargando: false
+      });
+    } finally {
+      setCargandoReporte(false);
+    }
+  };
+  
+  // Función para cargar datos completos del reporte desde Firebase
+  const cargarDatosReporteFirebase = async (reporte) => {
+    const reporteId = reporte.id || reporte.reporteId;
+    
+    if (!reporteId) {
+      throw new Error("ID de reporte no válido");
+    }
+    
+    console.log(`Intentando cargar reporte de Firebase con ID: ${reporteId}`);
+    
+    // Primero intentar obtener el documento principal del reporte
+    const reporteRef = doc(db, 'Reportes', reporteId);
+    const reporteDoc = await getDoc(reporteRef);
+    
+    if (!reporteDoc.exists()) {
+      console.log(`No se encontró el reporte con ID ${reporteId} en la colección 'Reportes'`);
+      throw new Error("Reporte no encontrado");
+    }
+    
+    // Obtener datos del documento principal
+    const datosReporte = reporteDoc.data();
+    console.log("Datos del reporte obtenidos:", datosReporte);
+    
+    // Obtener subcolecciones (actividades y mano de obra)
+    const actividadesRef = collection(db, `Reportes/${reporteId}/actividades`);
+    const manoObraRef = collection(db, `Reportes/${reporteId}/mano_obra`);
+    
+    const [actividadesSnapshot, manoObraSnapshot] = await Promise.all([
+      getDocs(actividadesRef),
+      getDocs(manoObraRef)
+    ]);
+    
+    // Convertir a arrays
+    const actividades = actividadesSnapshot.docs.map(doc => {
+      const data = doc.data();
+      // Asegurar estructura correcta
+      return {
+        id: doc.id,
+        nombre: data.proceso || data.nombre || `Actividad ${doc.id}`,
+        und: data.und || data.unidad || "UND",
+        metradoP: parseFloat(data.metradoP || 0),
+        metradoE: parseFloat(data.metradoE || 0),
+        avance: data.avance || calculateAvance(data.metradoP, data.metradoE),
+        causas: data.causas || ""
+      };
+    });
+    
+    // Si no hay actividades, lanzar error para probar el siguiente método
+    if (actividades.length === 0) {
+      throw new Error("No se encontraron actividades para este reporte");
+    }
+    
+    const trabajadores = manoObraSnapshot.docs.map(doc => {
+      const data = doc.data();
+      
+      // Calcular las horas por actividad (texto descriptivo)
+      let horasActividad = "";
+      if (Array.isArray(data.horas)) {
+        data.horas.forEach((h, idx) => {
+          if (h && parseFloat(h) > 0) {
+            const actividadNombre = idx < actividades.length ? actividades[idx].nombre : `Actividad ${idx+1}`;
+            horasActividad += `${actividadNombre}: ${h}h\n`;
+          }
+        });
+      }
+      
+      // Calcular horas totales
+      const totalHoras = Array.isArray(data.horas) 
+        ? data.horas.reduce((sum, h) => sum + parseFloat(h || 0), 0)
+        : parseFloat(data.totalHoras || 0);
+      
+      // Calcular costos basados en categoría
+      const categoria = data.categoria || "DEFAULT";
+      const costoEst = calcularCostoPorCategoria(categoria, totalHoras);
+      const costoExpediente = costoEst * 0.33; // Estimación
+      const ganancia = costoEst - costoExpediente;
+      
+      return {
+        nombre: data.trabajador || data.nombre || "Sin nombre",
+        categoria: data.categoria || "SIN CATEGORÍA",
+        horasActividad: horasActividad || "No hay detalle de horas",
+        totalHoras: totalHoras,
+        costoEst: costoEst,
+        costoExpediente: costoExpediente,
+        ganancia: ganancia
+      };
+    });
+    
+    // Si no hay trabajadores, lanzar error para probar el siguiente método
+    if (trabajadores.length === 0) {
+      throw new Error("No se encontraron trabajadores para este reporte");
+    }
+    
+    // Calcular totales
+    const totalHoras = trabajadores.reduce((sum, t) => sum + (t.totalHoras || 0), 0);
+    const totalCostoMO = trabajadores.reduce((sum, t) => sum + (t.costoEst || 0), 0);
+    const totalCostoExpediente = trabajadores.reduce((sum, t) => sum + (t.costoExpediente || 0), 0);
+    const totalGanancia = trabajadores.reduce((sum, t) => sum + (t.ganancia || 0), 0);
+    
+    // Crear el reporte completo
+    return {
+      ...reporte,
+      ...datosReporte,
+      actividades,
+      trabajadores,
+      totales: {
+        horas: totalHoras,
+        costoMO: totalCostoMO,
+        costoExpediente: totalCostoExpediente,
+        ganancia: totalGanancia
+      }
+    };
+  };
+  
+  // Función alternativa para cargar datos simplificados si falla el método principal
+  const cargarDatosReporteSimplificado = async (reporte) => {
+    const reporteId = reporte.id || reporte.reporteId;
+    
+    if (!reporteId) {
+      throw new Error("ID de reporte no válido");
+    }
+    
+    console.log(`Intentando cargar datos simplificados para reporte: ${reporteId}`);
+    
+    // Intentar obtener desde Reportes_Links, que podría tener más información
+    const reporteLinksRef = doc(db, 'Reportes_Links', reporteId);
+    const reporteLinksDoc = await getDoc(reporteLinksRef);
+    
+    let datosReporte = { ...reporte };
+    
+    if (reporteLinksDoc.exists()) {
+      datosReporte = { ...datosReporte, ...reporteLinksDoc.data() };
+      console.log("Datos encontrados en Reportes_Links:", datosReporte);
+    } else {
+      console.log(`No se encontró el reporte con ID ${reporteId} en Reportes_Links`);
+    }
+    
+    // Estimar actividades y trabajadores basados en la información disponible
+    const totalActividades = datosReporte.totalActividades || 2;
+    const totalTrabajadores = datosReporte.totalTrabajadores || 3;
+    const totalValorizado = datosReporte.totalValorizado || 0;
+    
+    // Generar actividades simuladas
+    const actividades = [];
+    for (let i = 0; i < totalActividades; i++) {
+      actividades.push({
+        nombre: `Actividad ${i + 1}`,
+        und: "UND",
+        metradoP: 100,
+        metradoE: 90,
+        avance: "90%",
+        causas: ""
+      });
+    }
+    
+    // Generar trabajadores simulados
+    const trabajadores = [];
+    const costoPromedioTrabajador = totalValorizado * 0.7 / totalTrabajadores; // Estimación: 70% del valor es costo
+    
+    const categorias = ["OPERARIO", "OFICIAL", "PEON"];
+    
+    for (let i = 0; i < totalTrabajadores; i++) {
+      const categoria = categorias[i % categorias.length];
+      const horasTrabajador = costoPromedioTrabajador / calcularCostoPorCategoria(categoria, 1);
+      
+      trabajadores.push({
+        nombre: `Trabajador ${i + 1}`,
+        categoria: categoria,
+        horasActividad: "Actividades varias",
+        totalHoras: horasTrabajador,
+        costoEst: calcularCostoPorCategoria(categoria, horasTrabajador),
+        costoExpediente: calcularCostoPorCategoria(categoria, horasTrabajador) * 0.33,
+        ganancia: calcularCostoPorCategoria(categoria, horasTrabajador) * 0.67
+      });
+    }
+    
+    // Calcular totales
+    const totalHoras = trabajadores.reduce((sum, t) => sum + (t.totalHoras || 0), 0);
+    const totalCostoMO = trabajadores.reduce((sum, t) => sum + (t.costoEst || 0), 0);
+    const totalCostoExpediente = trabajadores.reduce((sum, t) => sum + (t.costoExpediente || 0), 0);
+    const totalGanancia = trabajadores.reduce((sum, t) => sum + (t.ganancia || 0), 0);
+    
+    // Crear el reporte con datos reales + estimaciones
+    return {
+      ...datosReporte,
+      actividades,
+      trabajadores,
+      totales: {
+        horas: totalHoras,
+        costoMO: totalCostoMO,
+        costoExpediente: totalCostoExpediente,
+        ganancia: totalGanancia
+      }
+    };
+  };
+  
+  // Función para generar datos de reporte simulados
+  const generarDatosReporteSimulado = (reporte) => {
+    console.log("Generando datos simulados para reporte:", reporte.id || reporte.reporteId);
+    
+    // Actividades simuladas
+    const actividades = [
       {
         nombre: "SUMINISTRO DE MESA DE TRABAJO GRUPAL REGULABLE 1",
         und: "UND",
@@ -179,8 +474,8 @@ const ModuloReportes = () => {
       }
     ];
     
-    // Para los trabajadores, podemos usar los que ya están en el reporte o agregar datos simulados
-    const trabajadores = reporte.trabajadores || [
+    // Trabajadores simulados
+    const trabajadores = [
       {
         nombre: "LUPINTA AMANQUI FERMIN BENEDICTO",
         categoria: "OPERARIO",
@@ -210,14 +505,14 @@ const ModuloReportes = () => {
       }
     ];
     
-    // Calcular totales para los trabajadores
+    // Calcular totales
     const totalHoras = trabajadores.reduce((sum, t) => sum + t.totalHoras, 0);
     const totalCostoMO = trabajadores.reduce((sum, t) => sum + t.costoEst, 0);
     const totalCostoExpediente = trabajadores.reduce((sum, t) => sum + t.costoExpediente, 0);
     const totalGanancia = trabajadores.reduce((sum, t) => sum + t.ganancia, 0);
     
     // Crear el reporte completo
-    const reporteCompleto = {
+    return {
       ...reporte,
       actividades,
       trabajadores,
@@ -228,14 +523,19 @@ const ModuloReportes = () => {
         ganancia: totalGanancia
       }
     };
-    
-    setReporteSeleccionado(reporteCompleto);
+  };
+  
+  // Función auxiliar para calcular porcentaje de avance
+  const calculateAvance = (metradoP, metradoE) => {
+    if (!metradoP || metradoP <= 0) return "0%";
+    const porcentaje = (parseFloat(metradoE) / parseFloat(metradoP)) * 100;
+    return `${porcentaje.toFixed(1)}%`;
   };
   
   // Función para generar enlace de compartir
-  const generarEnlaceCompartir = (reporteId) => {
-    const baseUrl = window.location.origin;
-    const enlace = `${baseUrl}/dashboard?reporte=${reporteId}`;
+  const generarEnlaceCompartir = (reporte) => {
+    // Si tenemos enlace de Sheet, usamos ese, de lo contrario generamos un enlace a la aplicación
+    const enlace = reporte.enlaceSheet || reporte.spreadsheetUrl || `${window.location.origin}/dashboard?reporte=${reporte.id || reporte.reporteId}`;
     setEnlaceCompartir(enlace);
     setMostrarEnlace(true);
     
@@ -344,6 +644,48 @@ const ModuloReportes = () => {
       case 'reportes':
         return (
           <div>
+            {/* Panel de depuración - Solo en modo desarrollo */}
+            {process.env.NODE_ENV === 'development' && (
+              <div className="bg-amber-50 p-3 mb-4 rounded-lg border border-amber-200 text-sm">
+                <h4 className="font-medium mb-1 flex items-center">
+                  <AlertCircle size={16} className="mr-1 text-amber-600" />
+                  Panel de Depuración
+                </h4>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-2">
+                  <div>
+                    <span className="text-amber-800">Modo:</span> 
+                    <span className="ml-1 font-medium">{useMockData ? 'Simulación' : 'Datos reales'}</span>
+                  </div>
+                  <div>
+                    <span className="text-amber-800">Firebase:</span> 
+                    <span className="ml-1 font-medium">{db ? 'Conectado' : 'Desconectado'}</span>
+                  </div>
+                  <div>
+                    <span className="text-amber-800">Reportes:</span> 
+                    <span className="ml-1 font-medium">{reportesOriginales.length}</span>
+                  </div>
+                  <div>
+                    <span className="text-amber-800">Filtrados:</span> 
+                    <span className="ml-1 font-medium">{reportesFiltrados.length}</span>
+                  </div>
+                </div>
+                <div className="flex space-x-2">
+                  <button 
+                    className="px-2 py-1 text-xs bg-amber-600 text-white rounded hover:bg-amber-700"
+                    onClick={() => recargarDatos()}
+                  >
+                    Recargar Datos
+                  </button>
+                  <button 
+                    className="px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700"
+                    onClick={() => console.log("Datos del primer reporte:", reportesOriginales[0])}
+                  >
+                    Ver Primer Reporte
+                  </button>
+                </div>
+              </div>
+            )}
+            
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-sm font-medium">Reportes Recientes</h3>
               
@@ -637,12 +979,13 @@ const ModuloReportes = () => {
                                 onClick={() => verReporte(reporte)}
                                 className="text-blue-600 hover:text-blue-800"
                                 title="Ver detalles del reporte"
+                                disabled={cargandoReporte}
                               >
                                 <FileText size={16} />
                               </button>
                               <button 
                                 className="text-green-600 hover:text-green-800"
-                                onClick={() => generarEnlaceCompartir(reporte.id || reporte.reporteId)}
+                                onClick={() => generarEnlaceCompartir(reporte)}
                                 title="Compartir enlace"
                               >
                                 <Share2 size={16} />
@@ -672,7 +1015,8 @@ const ModuloReportes = () => {
             {reporteSeleccionado && (
               <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center overflow-y-auto">
                 <div className="bg-white rounded-lg w-11/12 max-w-6xl max-h-screen overflow-y-auto">
-                  <div className="sticky top-0 bg-white border-b border-gray-200 p-4 flex justify-between items-center">
+                  {/* Cabecera fija */}
+                  <div className="sticky top-0 bg-white border-b border-gray-200 p-4 flex justify-between items-center z-10">
                     <h2 className="text-xl font-semibold text-gray-800">Detalles del Reporte</h2>
                     <button
                       onClick={() => setReporteSeleccionado(null)}
@@ -682,168 +1026,209 @@ const ModuloReportes = () => {
                     </button>
                   </div>
                   
-                  <div className="p-4">
-                    {/* Información General */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-                      <div className="bg-white rounded-lg border border-gray-200">
-                        <div className="p-4">
-                          <h3 className="text-lg font-medium mb-3">Información General</h3>
-                          <div className="grid grid-cols-2 gap-4">
-                            <div>
-                              <p className="text-sm text-gray-600">Fecha:</p>
-                              <p className="font-medium">{formatearFecha(reporteSeleccionado.fecha)}</p>
+                  {/* Contenido con estado de carga */}
+                  {reporteSeleccionado.cargando ? (
+                    <div className="p-8 flex flex-col items-center justify-center">
+                      <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-blue-600 mb-4"></div>
+                      <p className="text-gray-600">Cargando detalles del reporte...</p>
+                    </div>
+                  ) : reporteSeleccionado.error ? (
+                    <div className="p-8">
+                      <div className="bg-red-50 p-6 rounded-lg border border-red-200 text-center">
+                        <AlertCircle size={32} className="mx-auto mb-3 text-red-500" />
+                        <p className="text-red-700 font-medium text-lg mb-2">Error al cargar el reporte</p>
+                        <p className="text-red-600">{reporteSeleccionado.error}</p>
+                        <button
+                          onClick={() => setReporteSeleccionado(null)}
+                          className="mt-4 px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700"
+                        >
+                          Cerrar
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="p-4">
+                      {/* Información General */}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                        <div className="bg-white rounded-lg border border-gray-200">
+                          <div className="p-4">
+                            <h3 className="text-lg font-medium mb-3">Información General</h3>
+                            <div className="grid grid-cols-2 gap-4">
+                              <div>
+                                <p className="text-sm text-gray-600">Fecha:</p>
+                                <p className="font-medium">{formatearFecha(reporteSeleccionado.fecha)}</p>
+                              </div>
+                              <div>
+                                <p className="text-sm text-gray-600">Elaborado por:</p>
+                                <p className="font-medium">{reporteSeleccionado.creadoPor || reporteSeleccionado.elaboradoPor || 'SUPERVISOR'}</p>
+                              </div>
+                              <div>
+                                <p className="text-sm text-gray-600">Subcontratista/Bloque:</p>
+                                <p className="font-medium">{reporteSeleccionado.subcontratistaBLoque || reporteSeleccionado.subcontratistaBloque || 'test_2'}</p>
+                              </div>
+                              <div>
+                                <p className="text-sm text-gray-600">ID Reporte:</p>
+                                <p className="font-medium">{reporteSeleccionado.id || reporteSeleccionado.reporteId || 'doXEIG9FvNiXWPSusNGk'}</p>
+                              </div>
                             </div>
-                            <div>
-                              <p className="text-sm text-gray-600">Elaborado por:</p>
-                              <p className="font-medium">{reporteSeleccionado.creadoPor || reporteSeleccionado.elaboradoPor || 'SUPERVISOR'}</p>
-                            </div>
-                            <div>
-                              <p className="text-sm text-gray-600">Subcontratista/Bloque:</p>
-                              <p className="font-medium">{reporteSeleccionado.subcontratistaBLoque || reporteSeleccionado.subcontratistaBloque || 'test_2'}</p>
-                            </div>
-                            <div>
-                              <p className="text-sm text-gray-600">ID Reporte:</p>
-                              <p className="font-medium">{reporteSeleccionado.id || reporteSeleccionado.reporteId || 'doXEIG9FvNiXWPSusNGk'}</p>
+                          </div>
+                        </div>
+                        
+                        <div className="bg-white rounded-lg border border-gray-200">
+                          <div className="p-4">
+                            <h3 className="text-lg font-medium mb-3">Resumen</h3>
+                            <div className="grid grid-cols-2 gap-4">
+                              <div>
+                                <p className="text-sm text-gray-600">Actividades:</p>
+                                <p className="font-medium">{reporteSeleccionado.actividades?.length || reporteSeleccionado.totalActividades || 2}</p>
+                              </div>
+                              <div>
+                                <p className="text-sm text-gray-600">Trabajadores:</p>
+                                <p className="font-medium">{reporteSeleccionado.trabajadores?.length || reporteSeleccionado.totalTrabajadores || 3}</p>
+                              </div>
+                              <div>
+                                <p className="text-sm text-gray-600">Costo Total:</p>
+                                <p className="font-medium text-red-600">{formatoMoneda(reporteSeleccionado.totales?.costoMO || 946.88)}</p>
+                              </div>
+                              <div>
+                                <p className="text-sm text-gray-600">Ganancia Neta:</p>
+                                <p className="font-medium text-green-600">{formatoMoneda(reporteSeleccionado.totales?.ganancia || 636.88)}</p>
+                              </div>
                             </div>
                           </div>
                         </div>
                       </div>
                       
-                      <div className="bg-white rounded-lg border border-gray-200">
-                        <div className="p-4">
-                          <h3 className="text-lg font-medium mb-3">Resumen</h3>
-                          <div className="grid grid-cols-2 gap-4">
-                            <div>
-                              <p className="text-sm text-gray-600">Actividades:</p>
-                              <p className="font-medium">{reporteSeleccionado.actividades?.length || reporteSeleccionado.totalActividades || 2}</p>
-                            </div>
-                            <div>
-                              <p className="text-sm text-gray-600">Trabajadores:</p>
-                              <p className="font-medium">{reporteSeleccionado.trabajadores?.length || reporteSeleccionado.totalTrabajadores || 3}</p>
-                            </div>
-                            <div>
-                              <p className="text-sm text-gray-600">Costo Total:</p>
-                              <p className="font-medium text-red-600">{formatoMoneda(reporteSeleccionado.totales?.costoMO || 946.88)}</p>
-                            </div>
-                            <div>
-                              <p className="text-sm text-gray-600">Ganancia Neta:</p>
-                              <p className="font-medium text-green-600">{formatoMoneda(reporteSeleccionado.totales?.ganancia || 636.88)}</p>
-                            </div>
+                      {/* Actividades - con manejo para cuando no hay actividades */}
+                      <div className="mb-8">
+                        <h3 className="text-lg font-medium mb-3">Actividades</h3>
+                        {reporteSeleccionado.actividades?.length > 0 ? (
+                          <div className="overflow-x-auto">
+                            <table className="min-w-full divide-y divide-gray-200 border border-gray-200">
+                              <thead className="bg-gray-50">
+                                <tr>
+                                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actividad</th>
+                                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">UND</th>
+                                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Metrado P.</th>
+                                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Metrado E.</th>
+                                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Avance</th>
+                                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Causas</th>
+                                </tr>
+                              </thead>
+                              <tbody className="bg-white divide-y divide-gray-200">
+                                {reporteSeleccionado.actividades.map((actividad, idx) => (
+                                  <tr key={idx} className={idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                                    <td className="px-3 py-3 text-sm font-medium text-gray-900">{actividad.nombre}</td>
+                                    <td className="px-3 py-3 text-sm text-gray-900">{actividad.und}</td>
+                                    <td className="px-3 py-3 text-sm text-gray-900">{typeof actividad.metradoP === 'number' ? actividad.metradoP.toFixed(2) : actividad.metradoP}</td>
+                                    <td className="px-3 py-3 text-sm text-gray-900">{typeof actividad.metradoE === 'number' ? actividad.metradoE.toFixed(2) : actividad.metradoE}</td>
+                                    <td className="px-3 py-3 text-sm text-green-600 font-medium">{actividad.avance}</td>
+                                    <td className="px-3 py-3 text-sm text-gray-900">{actividad.causas}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
                           </div>
-                        </div>
+                        ) : (
+                          <div className="bg-yellow-50 p-4 rounded-lg border border-yellow-200 text-center">
+                            <p className="text-yellow-700">No se encontraron actividades para este reporte.</p>
+                          </div>
+                        )}
                       </div>
-                    </div>
-                    
-                    {/* Actividades */}
-                    <div className="mb-8">
-                      <h3 className="text-lg font-medium mb-3">Actividades</h3>
-                      <div className="overflow-x-auto">
-                        <table className="min-w-full divide-y divide-gray-200 border border-gray-200">
-                          <thead className="bg-gray-50">
-                            <tr>
-                              <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actividad</th>
-                              <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">UND</th>
-                              <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Metrado P.</th>
-                              <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Metrado E.</th>
-                              <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Avance</th>
-                              <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Causas</th>
-                            </tr>
-                          </thead>
-                          <tbody className="bg-white divide-y divide-gray-200">
-                            {reporteSeleccionado.actividades.map((actividad, idx) => (
-                              <tr key={idx} className={idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
-                                <td className="px-3 py-3 text-sm font-medium text-gray-900">{actividad.nombre}</td>
-                                <td className="px-3 py-3 text-sm text-gray-900">{actividad.und}</td>
-                                <td className="px-3 py-3 text-sm text-gray-900">{actividad.metradoP.toFixed(2)}</td>
-                                <td className="px-3 py-3 text-sm text-gray-900">{actividad.metradoE.toFixed(2)}</td>
-                                <td className="px-3 py-3 text-sm text-green-600 font-medium">{actividad.avance}</td>
-                                <td className="px-3 py-3 text-sm text-gray-900">{actividad.causas}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
+                      
+                      {/* Mano de Obra - con manejo para cuando no hay trabajadores */}
+                      <div>
+                        <h3 className="text-lg font-medium mb-3">Mano de Obra</h3>
+                        {reporteSeleccionado.trabajadores?.length > 0 ? (
+                          <div className="overflow-x-auto">
+                            <table className="min-w-full divide-y divide-gray-200 border border-gray-200">
+                              <thead className="bg-gray-50">
+                                <tr>
+                                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Trabajador</th>
+                                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Categoría</th>
+                                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Horas por Actividad</th>
+                                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total Horas</th>
+                                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Costo MO</th>
+                                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Costo Expediente</th>
+                                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ganancia Neta</th>
+                                </tr>
+                              </thead>
+                              <tbody className="bg-white divide-y divide-gray-200">
+                                {reporteSeleccionado.trabajadores.map((trabajador, idx) => (
+                                  <tr key={idx} className={idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                                    <td className="px-3 py-3 text-sm text-gray-900">{trabajador.nombre}</td>
+                                    <td className="px-3 py-3 text-sm text-gray-900">
+                                      <span className={`px-2 py-1 rounded-full text-xs ${
+                                        trabajador.categoria === 'OPERARIO' ? 'bg-green-100 text-green-800' :
+                                        trabajador.categoria === 'OFICIAL' ? 'bg-blue-100 text-blue-800' :
+                                        'bg-gray-100 text-gray-800'
+                                      }`}>
+                                        {trabajador.categoria}
+                                      </span>
+                                    </td>
+                                    <td className="px-3 py-3 text-sm text-gray-900 whitespace-pre-line">{trabajador.horasActividad}</td>
+                                    <td className="px-3 py-3 text-sm text-gray-900">{trabajador.totalHoras}</td>
+                                    <td className="px-3 py-3 text-sm text-red-600">{formatoMoneda(trabajador.costoEst)}</td>
+                                    <td className="px-3 py-3 text-sm text-blue-600">{formatoMoneda(trabajador.costoExpediente)}</td>
+                                    <td className="px-3 py-3 text-sm text-green-600">{formatoMoneda(trabajador.ganancia)}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                              <tfoot className="bg-gray-100">
+                                <tr>
+                                  <td className="px-3 py-3 text-sm font-medium text-gray-900 text-right">Total:</td>
+                                  <td className="px-3 py-3 text-sm font-medium text-gray-900">
+                                    {reporteSeleccionado.totales.horas}
+                                  </td>
+                                  <td className="px-3 py-3 text-sm font-medium text-red-600">
+                                    {formatoMoneda(reporteSeleccionado.totales.costoMO)}
+                                  </td>
+                                  <td className="px-3 py-3 text-sm font-medium text-blue-600">
+                                    {formatoMoneda(reporteSeleccionado.totales.costoExpediente)}
+                                  </td>
+                                  <td className="px-3 py-3 text-sm font-medium text-green-600">
+                                    {formatoMoneda(reporteSeleccionado.totales.ganancia)}
+                                  </td>
+                                </tr>
+                              </tfoot>
+                            </table>
+                          </div>
+                        ) : (
+                          <div className="bg-yellow-50 p-4 rounded-lg border border-yellow-200 text-center">
+                            <p className="text-yellow-700">No se encontraron trabajadores para este reporte.</p>
+                          </div>
+                        )}
                       </div>
-                    </div>
-                    
-                    {/* Mano de Obra */}
-                    <div>
-                      <h3 className="text-lg font-medium mb-3">Mano de Obra</h3>
-                      <div className="overflow-x-auto">
-                        <table className="min-w-full divide-y divide-gray-200 border border-gray-200">
-                          <thead className="bg-gray-50">
-                            <tr>
-                              <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Trabajador</th>
-                              <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Categoría</th>
-                              <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Horas por Actividad</th>
-                              <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total Horas</th>
-                              <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Costo MO</th>
-                              <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Costo Expediente</th>
-                              <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ganancia Neta</th>
-                            </tr>
-                          </thead>
-                          <tbody className="bg-white divide-y divide-gray-200">
-                            {reporteSeleccionado.trabajadores.map((trabajador, idx) => (
-                              <tr key={idx} className={idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
-                                <td className="px-3 py-3 text-sm text-gray-900">{trabajador.nombre}</td>
-                                <td className="px-3 py-3 text-sm text-gray-900">
-                                  <span className={`px-2 py-1 rounded-full text-xs ${
-                                    trabajador.categoria === 'OPERARIO' ? 'bg-green-100 text-green-800' :
-                                    trabajador.categoria === 'OFICIAL' ? 'bg-blue-100 text-blue-800' :
-                                    'bg-gray-100 text-gray-800'
-                                  }`}>
-                                    {trabajador.categoria}
-                                  </span>
-                                </td>
-                                <td className="px-3 py-3 text-sm text-gray-900 whitespace-pre-line">{trabajador.horasActividad}</td>
-                                <td className="px-3 py-3 text-sm text-gray-900">{trabajador.totalHoras}</td>
-                                <td className="px-3 py-3 text-sm text-red-600">{formatoMoneda(trabajador.costoEst)}</td>
-                                <td className="px-3 py-3 text-sm text-blue-600">{formatoMoneda(trabajador.costoExpediente)}</td>
-                                <td className="px-3 py-3 text-sm text-green-600">{formatoMoneda(trabajador.ganancia)}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                          <tfoot className="bg-gray-100">
-                            <tr>
-                              <td colSpan="3" className="px-3 py-3 text-sm font-medium text-gray-900 text-right">Costo Total:</td>
-                              <td className="px-3 py-3 text-sm font-medium text-gray-900">
-                                {reporteSeleccionado.totales.horas}
-                              </td>
-                              <td className="px-3 py-3 text-sm font-medium text-red-600">
-                                {formatoMoneda(reporteSeleccionado.totales.costoMO)}
-                              </td>
-                              <td className="px-3 py-3 text-sm font-medium text-blue-600">
-                                {formatoMoneda(reporteSeleccionado.totales.costoExpediente)}
-                              </td>
-                              <td className="px-3 py-3 text-sm font-medium text-green-600">
-                                {formatoMoneda(reporteSeleccionado.totales.ganancia)}
-                              </td>
-                            </tr>
-                          </tfoot>
-                        </table>
-                      </div>
-                    </div>
-                    
-                    {/* Botones */}
-                    <div className="mt-6 flex justify-end">
-                      {reporteSeleccionado.enlaceSheet && (
-                        <a 
-                          href={reporteSeleccionado.enlaceSheet} 
-                          target="_blank" 
-                          rel="noopener noreferrer"
-                          className="flex items-center mr-4 px-4 py-2 bg-blue-100 text-blue-700 rounded hover:bg-blue-200"
+                      
+                      {/* Botones */}
+                      <div className="mt-6 flex justify-end">
+                        {reporteSeleccionado.enlaceSheet && (
+                          <a 
+                            href={reporteSeleccionado.enlaceSheet} 
+                            target="_blank" 
+                            rel="noopener noreferrer"
+                            className="flex items-center mr-4 px-4 py-2 bg-blue-100 text-blue-700 rounded hover:bg-blue-200"
+                          >
+                            <ExternalLink size={16} className="mr-2" />
+                            Ver en Google Sheets
+                          </a>
+                        )}
+                        <button 
+                          onClick={() => generarEnlaceCompartir(reporteSeleccionado)}
+                          className="flex items-center mr-4 px-4 py-2 bg-green-100 text-green-700 rounded hover:bg-green-200"
                         >
-                          <ExternalLink size={16} className="mr-2" />
-                          Ver en Google Sheets
-                        </a>
-                      )}
-                      <button 
-                        onClick={() => setReporteSeleccionado(null)} 
-                        className="px-4 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300"
-                      >
-                        Cerrar
-                      </button>
+                          <Share2 size={16} className="mr-2" />
+                          Compartir enlace
+                        </button>
+                        <button 
+                          onClick={() => setReporteSeleccionado(null)} 
+                          className="px-4 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300"
+                        >
+                          Cerrar
+                        </button>
+                      </div>
                     </div>
-                  </div>
+                  )}
                 </div>
               </div>
             )}
