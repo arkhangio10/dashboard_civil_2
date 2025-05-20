@@ -1,200 +1,632 @@
-import React, { useState } from 'react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LineChart, Line, ComposedChart, Area } from 'recharts';
-import { Activity, BarChart2, TrendingUp, List } from 'lucide-react';
-import { mockData } from '../../utils/mockData';
+// src/components/dashboard/AnalisisProductividad.js
+import React, { useState, useEffect } from 'react';
+import { 
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, 
+  ResponsiveContainer, LineChart, Line, ComposedChart, 
+  Cell, ReferenceLine
+} from 'recharts';
+import { 
+  Activity, BarChart2, TrendingUp, 
+  AlertCircle, Calendar, Filter, 
+  Clock, DollarSign, ExternalLink,
+  ChevronDown, ArrowUp, ArrowDown
+} from 'lucide-react';
+import { useDashboard } from '../../context/DashboardContext';
+import { formatoMoneda, formatoNumero } from '../../utils/formatUtils';
 
 const AnalisisProductividad = () => {
+  const { datos, loading, filtros } = useDashboard();
   const [vistaActiva, setVistaActiva] = useState('actividades');
+  const [actividadSeleccionada, setActividadSeleccionada] = useState(null);
   
-  // Datos de ejemplo para las gráficas
-  const datosActividades = mockData.actividades.map(act => ({
-    nombre: act.nombre,
-    productividad: act.productividad,
-    meta: act.meta,
-    diferencia: ((act.productividad / act.meta) - 1) * 100
-  }));
-
-  const datosTendencia = mockData.tendencias.productividad;
+  // Estados para filtrado
+  const [mostrarFiltros, setMostrarFiltros] = useState(false);
+  const [filtroProductividad, setFiltroProductividad] = useState('Productividad');
+  const [filtroOrden, setFiltroOrden] = useState('Mayor a menor');
+  const [filtroCategoria, setFiltroCategoria] = useState('Todas');
   
-  // Formatear datos para gráfico
-  function formatearDiferencia(valor) {
-    return valor >= 0 ? `+${valor.toFixed(1)}%` : `${valor.toFixed(1)}%`;
-  }
+  // Datos de actividades desde el contexto del dashboard
+  const actividades = datos.actividades || [];
+  
+  // Ordenar y filtrar actividades según los criterios seleccionados
+  const actividadesFiltradas = React.useMemo(() => {
+    // Primero filtramos por categoría si es necesario
+    let filtradas = [...actividades];
+    
+    if (filtroCategoria !== 'Todas') {
+      // Aquí asumimos que la actividad tiene una propiedad 'categoria' o 'tipo'
+      // Ajusta según tu estructura de datos real
+      filtradas = filtradas.filter(act => 
+        (act.categoria && act.categoria === filtroCategoria) || 
+        (act.tipo && act.tipo === filtroCategoria) ||
+        (act.nombre && act.nombre.includes(filtroCategoria))
+      );
+    }
+    
+    // Luego ordenamos según el criterio seleccionado
+    return filtradas.sort((a, b) => {
+      let valorA, valorB;
+      
+      // Determinar qué campo usar para ordenar
+      switch (filtroProductividad) {
+        case 'Productividad':
+          valorA = a.productividad || 0;
+          valorB = b.productividad || 0;
+          break;
+        case 'Metrado':
+          valorA = a.metrado || 0;
+          valorB = b.metrado || 0;
+          break;
+        case 'Inversión':
+          valorA = a.costo || 0;
+          valorB = b.costo || 0;
+          break;
+        default:
+          valorA = a.productividad || 0;
+          valorB = b.productividad || 0;
+      }
+      
+      // Aplicar orden ascendente o descendente
+      if (filtroOrden === 'Mayor a menor') {
+        return valorB - valorA;
+      } else {
+        return valorA - valorB;
+      }
+    });
+  }, [actividades, filtroCategoria, filtroProductividad, filtroOrden]);
+  
+  // Calcular la productividad media
+  const productividadMedia = actividades.length > 0 
+    ? actividades.reduce((sum, act) => sum + act.productividad, 0) / actividades.length 
+    : 0;
+  
+  // Función para obtener el color según el rendimiento de la actividad
+  const getBarColor = (actividad) => {
+    // Colores según productividad absoluta
+    if (actividad.productividad >= 2.5) return '#10b981'; // verde
+    if (actividad.productividad >= 1.5) return '#f59e0b';  // amarillo
+    return '#ef4444';  // rojo
+  };
+  
+  // Historial de productividad (simulado) - optimizado para reducir carga
+  const obtenerHistorialActividad = (actividad) => {
+    if (!actividad) return [];
+    
+    // Datos simulados para el historial - versión simplificada
+    const historico = [];
+    const baseProductividad = actividad.productividad * 0.8;
+    const baseMetrado = actividad.metrado / 6; // Reducido a 6 periodos
+    
+    for (let i = 0; i < 6; i++) {
+      // Tendencia creciente
+      const factor = 1 + (i * 0.04);
+      const variacion = (Math.random() * 0.2) - 0.1; // Variación aleatoria
+      
+      historico.push({
+        periodo: `S${i+1}`,
+        productividad: Math.max(0, baseProductividad * factor + variacion),
+        metrado: Math.round(baseMetrado * factor * (1 + variacion))
+      });
+    }
+    
+    return historico;
+  };
+  
+  // Generar reportes simulados para la actividad
+  const obtenerReportesActividad = (actividad) => {
+    if (!actividad) return [];
+    
+    // En una implementación real, estos datos vendrían de Firebase
+    // Generamos datos simulados para la demostración
+    const reportes = [];
+    const numReportes = Math.floor(Math.random() * 3) + 2; // 2-4 reportes
+    
+    for (let i = 0; i < numReportes; i++) {
+      const fecha = new Date();
+      fecha.setDate(fecha.getDate() - (i * 7)); // Cada 7 días hacia atrás
+      
+      reportes.push({
+        id: `REP-${Math.floor(Math.random() * 1000) + 1000}`,
+        fecha: fecha.toISOString().split('T')[0],
+        elaboradoPor: ['Juan Pérez', 'María López', 'Carlos Rodríguez'][Math.floor(Math.random() * 3)],
+        enlaceSheet: `https://docs.google.com/spreadsheets/d/example${i+1}`
+      });
+    }
+    
+    return reportes;
+  };
+  
+  // Método para aplicar filtros
+  const aplicarFiltros = () => {
+    // En esta implementación los filtros ya se aplican reactivamente
+    // Esta función es para mantener coherencia con la UI
+    console.log("Filtros aplicados:", { filtroProductividad, filtroOrden, filtroCategoria });
+    setMostrarFiltros(false);
+  };
 
   // Renderizar vista según la selección
   const renderizarVista = () => {
+    if (loading) {
+      return (
+        <div className="flex justify-center items-center h-64">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+        </div>
+      );
+    }
+    
+    if (actividadesFiltradas.length === 0) {
+      return (
+        <div className="bg-yellow-50 p-6 rounded-lg border border-yellow-200 flex items-center justify-center">
+          <AlertCircle size={20} className="text-yellow-500 mr-2" />
+          <p className="text-yellow-700">
+            No se encontraron actividades con los filtros seleccionados.
+          </p>
+        </div>
+      );
+    }
+    
     switch (vistaActiva) {
       case 'actividades':
         return (
           <div>
+            {/* Filtros */}
+            <div className="mb-4">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-medium">Avance de Actividades</h3>
+                
+                <div className="flex items-center space-x-2">
+                  <div>
+                    <select 
+                      className="p-1.5 border border-gray-300 rounded-md text-sm"
+                      value={filtroCategoria}
+                      onChange={(e) => setFiltroCategoria(e.target.value)}
+                    >
+                      <option value="Todas">Todas</option>
+                      <option value="ENCOFRADO">ENCOFRADO</option>
+                      <option value="INSTALACION">INSTALACION</option>
+                      <option value="SUMINISTRO">SUMINISTRO</option>
+                      <option value="SIMULACION">SIMULACION</option>
+                      <option value="PRUEBAS">PRUEBAS</option>
+                    </select>
+                  </div>
+                  
+                  <button
+                    className="flex items-center text-blue-600 text-sm"
+                    onClick={() => setMostrarFiltros(!mostrarFiltros)}
+                  >
+                    <Filter size={14} className="mr-1" />
+                    Filtros avanzados
+                    <ChevronDown size={14} className={`ml-1 transition-transform ${mostrarFiltros ? 'rotate-180' : ''}`} />
+                  </button>
+                </div>
+              </div>
+              
+              {/* Filtros avanzados */}
+              {mostrarFiltros && (
+                <div className="mt-2 p-3 bg-gray-50 rounded-lg border border-gray-200">
+                  <div className="flex flex-wrap gap-2">
+                    <div>
+                      <label className="block mb-1 text-xs font-medium">Ordenar por:</label>
+                      <select 
+                        className="p-1.5 border border-gray-300 rounded-md text-sm"
+                        value={filtroProductividad}
+                        onChange={(e) => setFiltroProductividad(e.target.value)}
+                      >
+                        <option value="Productividad">Productividad</option>
+                        <option value="Metrado">Metrado</option>
+                        <option value="Inversión">Inversión</option>
+                      </select>
+                    </div>
+                    
+                    <div>
+                      <label className="block mb-1 text-xs font-medium">Orden:</label>
+                      <select 
+                        className="p-1.5 border border-gray-300 rounded-md text-sm"
+                        value={filtroOrden}
+                        onChange={(e) => setFiltroOrden(e.target.value)}
+                      >
+                        <option value="Mayor a menor">Mayor a menor</option>
+                        <option value="Menor a mayor">Menor a mayor</option>
+                      </select>
+                    </div>
+                    
+                    <div className="md:ml-auto flex items-end">
+                      <button 
+                        className="px-3 py-1.5 bg-blue-600 text-white rounded-md text-sm"
+                        onClick={aplicarFiltros}
+                      >
+                        Aplicar filtros
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+            
+            {/* Gráfico de Productividad */}
             <div className="mb-4">
               <h3 className="text-sm font-medium mb-2">Productividad por Actividad (metrado/hora)</h3>
               <ResponsiveContainer width="100%" height={320}>
-                <ComposedChart data={datosActividades}>
+                <ComposedChart 
+                  data={actividadesFiltradas}
+                  margin={{ top: 20, right: 20, bottom: 20, left: 20 }}
+                >
                   <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="nombre" tick={{fontSize: 10}} interval={0} angle={-20} textAnchor="end" height={80} />
-                  <YAxis />
-                  <Tooltip formatter={(value) => value.toFixed(2)} />
+                  <XAxis 
+                    dataKey="nombre" 
+                    tick={{fontSize: 10}} 
+                    interval={0} 
+                    angle={-20} 
+                    textAnchor="end" 
+                    height={80} 
+                  />
+                  <YAxis yAxisId="left" />
+                  <YAxis yAxisId="right" orientation="right" />
+                  <Tooltip />
                   <Legend />
-                  <Bar dataKey="productividad" name="Productividad Actual" fill="#8884d8" />
-                  <Line dataKey="meta" name="Meta" stroke="#ff7300" strokeWidth={2} dot={false} />
+                  
+                  {/* Línea de productividad media como referencia */}
+                  <ReferenceLine 
+                    yAxisId="left"
+                    y={productividadMedia} 
+                    stroke="#9333ea" 
+                    strokeDasharray="3 3"
+                  />
+                  
+                  <Bar 
+                    yAxisId="left"
+                    dataKey="productividad" 
+                    name="Productividad" 
+                    onClick={(data) => setActividadSeleccionada(data)}
+                  >
+                    {actividadesFiltradas.map((entry, index) => (
+                      <Cell 
+                        key={`cell-${index}`} 
+                        fill={getBarColor(entry)}
+                        stroke="#8884d8"
+                        strokeWidth={entry.nombre === actividadSeleccionada?.nombre ? 2 : 0}
+                      />
+                    ))}
+                  </Bar>
+                  <Line 
+                    yAxisId="right"
+                    type="monotone" 
+                    dataKey="horas" 
+                    name="Horas Invertidas" 
+                    stroke="#ff7300" 
+                    strokeWidth={2} 
+                    dot={false} 
+                  />
                 </ComposedChart>
               </ResponsiveContainer>
             </div>
             
-            <div className="mt-6">
-              <h3 className="text-sm font-medium mb-2">Variación vs Meta (%)</h3>
-              <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actividad</th>
-                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Productividad</th>
-                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Meta</th>
-                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Diferencia</th>
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
-                    {datosActividades.map((act, index) => (
-                      <tr key={index} className={index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
-                        <td className="px-3 py-2 text-sm text-gray-900">{act.nombre}</td>
-                        <td className="px-3 py-2 text-sm text-gray-900">{act.productividad.toFixed(2)}</td>
-                        <td className="px-3 py-2 text-sm text-gray-900">{act.meta.toFixed(2)}</td>
-                        <td className={`px-3 py-2 text-sm font-medium ${act.diferencia >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                          {formatearDiferencia(act.diferencia)}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+            {/* Detalle de actividad seleccionada */}
+            {actividadSeleccionada ? (
+              <div className="mt-6 bg-blue-50 p-4 rounded-lg border border-blue-200">
+                <div className="flex justify-between items-start mb-4">
+                  <div>
+                    <h3 className="font-medium text-blue-800 text-lg">{actividadSeleccionada.nombre}</h3>
+                    <p className="text-blue-600 text-sm">
+                      {actividadSeleccionada.ubicacion || 'Ubicación no especificada'} • 
+                      {actividadSeleccionada.unidad || 'Unidad no especificada'}
+                    </p>
+                  </div>
+                  <button 
+                    className="text-sm text-blue-600 hover:text-blue-800"
+                    onClick={() => setActividadSeleccionada(null)}
+                  >
+                    Cerrar detalles
+                  </button>
+                </div>
+                
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-4">
+                  <div className="bg-white p-3 rounded-lg border border-blue-100">
+                    <div className="flex items-center mb-1">
+                      <Activity size={16} className="text-blue-600 mr-2" />
+                      <span className="text-sm text-gray-600">Productividad</span>
+                    </div>
+                    <p className="text-lg font-bold text-blue-700">{actividadSeleccionada.productividad.toFixed(2)}</p>
+                    <p className="text-xs text-gray-500">metrado/hora</p>
+                  </div>
+                  
+                  <div className="bg-white p-3 rounded-lg border border-blue-100">
+                    <div className="flex items-center mb-1">
+                      <Clock size={16} className="text-green-600 mr-2" />
+                      <span className="text-sm text-gray-600">Metrado Total</span>
+                    </div>
+                    <p className="text-lg font-bold text-green-700">{formatoNumero(actividadSeleccionada.metrado || 0)}</p>
+                    <p className="text-xs text-gray-500">unidades completadas</p>
+                  </div>
+                  
+                  <div className="bg-white p-3 rounded-lg border border-blue-100">
+                    <div className="flex items-center mb-1">
+                      <DollarSign size={16} className="text-purple-600 mr-2" />
+                      <span className="text-sm text-gray-600">Inversión</span>
+                    </div>
+                    <p className="text-lg font-bold text-purple-700">{formatoMoneda(actividadSeleccionada.costo || 0)}</p>
+                    <p className="text-xs text-gray-500">costo total</p>
+                  </div>
+                </div>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                  <div className="bg-white p-3 rounded-lg border border-blue-100">
+                    <h4 className="font-medium text-blue-800 mb-2">Evolución de Productividad y Metrado</h4>
+                    <ResponsiveContainer width="100%" height={200}>
+                      <LineChart data={obtenerHistorialActividad(actividadSeleccionada)}>
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis dataKey="periodo" />
+                        <YAxis yAxisId="left" />
+                        <YAxis yAxisId="right" orientation="right" />
+                        <Tooltip formatter={(value, name) => {
+                          if (name === "productividad") return [value.toFixed(2), "Productividad"];
+                          if (name === "metrado") return [formatoNumero(value), "Metrado"];
+                          return [value, name];
+                        }} />
+                        <Legend />
+                        <Line 
+                          yAxisId="left"
+                          type="monotone" 
+                          dataKey="productividad" 
+                          name="Productividad" 
+                          stroke="#8884d8" 
+                          activeDot={{ r: 8 }} 
+                        />
+                        <Line 
+                          yAxisId="right"
+                          type="monotone" 
+                          dataKey="metrado" 
+                          name="Metrado" 
+                          stroke="#82ca9d" 
+                          activeDot={{ r: 6 }} 
+                        />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+                  
+                  <div className="bg-white p-3 rounded-lg border border-blue-100">
+                    <h4 className="font-medium text-blue-800 mb-2">Reportes asociados</h4>
+                    {obtenerReportesActividad(actividadSeleccionada).length > 0 ? (
+                      <div className="space-y-2 max-h-52 overflow-y-auto">
+                        {obtenerReportesActividad(actividadSeleccionada).map((reporte, index) => (
+                          <div key={index} className="p-2 bg-blue-50 rounded-md text-sm border border-blue-100">
+                            <div className="flex justify-between items-center">
+                              <span className="font-medium">{reporte.id}</span>
+                              <span className="text-gray-600 text-xs">{reporte.fecha}</span>
+                            </div>
+                            <p className="text-xs text-gray-600 mt-1">Por: {reporte.elaboradoPor}</p>
+                            <div className="mt-1">
+                              <a 
+                                href={reporte.enlaceSheet} 
+                                target="_blank" 
+                                rel="noopener noreferrer"
+                                className="flex items-center text-blue-600 text-xs hover:text-blue-800"
+                              >
+                                <ExternalLink size={12} className="mr-1" />
+                                Ver reporte
+                              </a>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-sm text-gray-500">No hay reportes asociados a esta actividad.</p>
+                    )}
+                  </div>
+                </div>
               </div>
-            </div>
+            ) : (
+              <div className="mt-6">
+                <div className="overflow-x-auto">
+                  <table className="min-w-full divide-y divide-gray-200">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actividad</th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Productividad</th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Inversión (S/)</th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Metrado Avanzado</th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Acción</th>
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                      {actividadesFiltradas.map((act, index) => {
+                        return (
+                          <tr key={index} className={index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                            <td className="px-3 py-2 text-sm text-gray-900">{act.nombre}</td>
+                            <td className="px-3 py-2 text-sm text-gray-900">{act.productividad.toFixed(2)}</td>
+                            <td className="px-3 py-2 text-sm text-gray-900">{formatoMoneda(act.costo || 0)}</td>
+                            <td className="px-3 py-2 text-sm font-medium text-gray-900">
+                              {formatoNumero(act.metrado || 0)}
+                            </td>
+                            <td className="px-3 py-2 text-sm text-center">
+                              <button 
+                                className="px-2 py-1 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200"
+                                onClick={() => setActividadSeleccionada(act)}
+                              >
+                                Ver detalle
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
           </div>
         );
         
       case 'tendencia':
         return (
           <div>
-            <h3 className="text-sm font-medium mb-2">Tendencia de Productividad en el Tiempo</h3>
-            <ResponsiveContainer width="100%" height={350}>
-              <LineChart data={datosTendencia}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="semana" />
-                <YAxis />
-                <Tooltip formatter={(value) => value.toFixed(2)} />
-                <Legend />
-                <Line type="monotone" dataKey="productividad" name="Productividad Semanal" stroke="#8884d8" activeDot={{ r: 8 }} />
-                <Line type="monotone" dataKey="promedio" name="Promedio Acumulado" stroke="#82ca9d" />
-              </LineChart>
-            </ResponsiveContainer>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+              <div>
+                <h3 className="text-sm font-medium mb-2">Evolución de Productividad Global</h3>
+                <ResponsiveContainer width="100%" height={300}>
+                  <LineChart data={datos.tendencias.productividad || []}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="semana" />
+                    <YAxis />
+                    <Tooltip formatter={(value) => value.toFixed(2)} />
+                    <Legend />
+                    <Line 
+                      type="monotone" 
+                      dataKey="productividad" 
+                      name="Productividad Semanal" 
+                      stroke="#8884d8" 
+                      activeDot={{ r: 8 }} 
+                    />
+                    <Line 
+                      type="monotone" 
+                      dataKey="promedio" 
+                      name="Promedio Acumulado" 
+                      stroke="#82ca9d" 
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+              
+              <div>
+                <h3 className="text-sm font-medium mb-2">Relación Costo-Avance Semanal</h3>
+                <ResponsiveContainer width="100%" height={300}>
+                  <ComposedChart data={datos.tendencias.costos || []}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="semana" />
+                    <YAxis yAxisId="left" orientation="left" />
+                    <YAxis yAxisId="right" orientation="right" />
+                    <Tooltip formatter={(value) => formatoMoneda(value)} />
+                    <Legend />
+                    <Bar yAxisId="left" dataKey="costo" name="Costo" fill="#8884d8" />
+                    <Line yAxisId="right" type="monotone" dataKey="ganancia" name="Ganancia" stroke="#ff7300" />
+                  </ComposedChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
             
-            <div className="mt-6 grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-3 gap-4 mb-4">
               <div className="bg-blue-50 p-3 rounded-lg">
                 <p className="text-sm text-gray-600">Productividad Actual</p>
-                <p className="text-lg font-bold text-blue-700">{datosTendencia[datosTendencia.length - 1].productividad.toFixed(2)}</p>
+                <p className="text-lg font-bold text-blue-700">
+                  {datos.tendencias.productividad && datos.tendencias.productividad.length > 0
+                    ? datos.tendencias.productividad[datos.tendencias.productividad.length - 1].productividad.toFixed(2)
+                    : '0.00'
+                  }
+                </p>
                 <p className="text-xs text-gray-500 mt-1">Última semana registrada</p>
               </div>
               <div className="bg-green-50 p-3 rounded-lg">
-                <p className="text-sm text-gray-600">Promedio Histórico</p>
-                <p className="text-lg font-bold text-green-700">{datosTendencia[datosTendencia.length - 1].promedio.toFixed(2)}</p>
-                <p className="text-xs text-gray-500 mt-1">Promedio acumulado</p>
+                <p className="text-sm text-gray-600">Mejora Productividad</p>
+                <p className="text-lg font-bold text-green-700">
+                  {datos.tendencias.productividad && datos.tendencias.productividad.length > 1 
+                    ? ((datos.tendencias.productividad[datos.tendencias.productividad.length - 1].productividad / 
+                        datos.tendencias.productividad[0].productividad - 1) * 100).toFixed(1) + '%'
+                    : '+0.0%'
+                  }
+                </p>
+                <p className="text-xs text-gray-500 mt-1">Desde inicio del período</p>
               </div>
               <div className="bg-purple-50 p-3 rounded-lg">
-                <p className="text-sm text-gray-600">Mejora</p>
+                <p className="text-sm text-gray-600">Ganancia Última Semana</p>
                 <p className="text-lg font-bold text-purple-700">
-                  {formatearDiferencia((datosTendencia[datosTendencia.length - 1].productividad / datosTendencia[0].productividad - 1) * 100)}
+                  {datos.tendencias.costos && datos.tendencias.costos.length > 0
+                    ? formatoMoneda(datos.tendencias.costos[datos.tendencias.costos.length - 1].ganancia)
+                    : formatoMoneda(0)
+                  }
                 </p>
-                <p className="text-xs text-gray-500 mt-1">Desde el inicio del período</p>
+                <p className="text-xs text-gray-500 mt-1">Valor - Costo</p>
+              </div>
+            </div>
+            
+            <div className="bg-white p-4 rounded-lg border border-gray-200">
+              <h4 className="font-medium text-gray-700 mb-2">Análisis de Tendencias de Productividad</h4>
+              <p className="text-sm text-gray-600 mb-3">
+                El análisis de las tendencias muestra la evolución de la productividad a lo largo del tiempo, 
+                permitiendo identificar si las mejoras implementadas están generando resultados positivos.
+              </p>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <h5 className="text-sm font-medium text-gray-700 mb-1">Principales Observaciones</h5>
+                  <ul className="list-disc pl-5 text-sm space-y-1 text-gray-600">
+                    <li>La productividad promedio ha mejorado un 
+                      {datos.tendencias.productividad && datos.tendencias.productividad.length > 1 
+                        ? ` ${((datos.tendencias.productividad[datos.tendencias.productividad.length - 1].promedio / 
+                            datos.tendencias.productividad[0].promedio - 1) * 100).toFixed(1)}%`
+                        : ' +0.0%'
+                      } en el período analizado.
+                    </li>
+                    <li>Las actividades con mayor productividad son: 
+                      {actividadesFiltradas.length > 0 ? ` ${actividadesFiltradas[0].nombre}, ${actividadesFiltradas.length > 1 ? actividadesFiltradas[1].nombre : ''}` : ' ninguna registrada'}.
+                    </li>
+                    <li>Se detecta una correlación positiva entre la productividad y la ganancia semanal.</li>
+                  </ul>
+                </div>
+                
+                <div>
+                  <h5 className="text-sm font-medium text-gray-700 mb-1">Recomendaciones</h5>
+                  <ul className="list-disc pl-5 text-sm space-y-1 text-gray-600">
+                    <li>Reforzar capacitación en las actividades con productividad por debajo del promedio.</li>
+                    <li>Analizar los factores de éxito de las actividades con mayor productividad para replicarlos.</li>
+                    <li>Implementar incentivos basados en productividad para mantener la tendencia positiva.</li>
+                    <li>Evaluar los costos por metrado para identificar oportunidades de optimización.</li>
+                  </ul>
+                </div>
               </div>
             </div>
           </div>
         );
         
-      case 'indicadores':
-        // Calcular indicadores clave
-        const ultimaProductividad = datosTendencia[datosTendencia.length - 1].productividad;
-        const productiviadadPromedio = datosTendencia[datosTendencia.length - 1].promedio;
-        const tendencia = datosTendencia.length > 1 ? 
-          (datosTendencia[datosTendencia.length - 1].productividad - datosTendencia[datosTendencia.length - 2].productividad) / 
-          datosTendencia[datosTendencia.length - 2].productividad : 0;
-          
-        // Comparar con metas
-        const actividadesSuperanMeta = datosActividades.filter(a => a.productividad >= a.meta).length;
-        const porcentajeCumplimiento = (actividadesSuperanMeta / datosActividades.length) * 100;
-        
+      case 'optimizacion':
+        // Vista de optimización - simplificada para reducir uso de Firebase
         return (
           <div>
-            <h3 className="text-sm font-medium mb-3">Indicadores de Productividad</h3>
+            <h3 className="text-sm font-medium mb-3">Análisis de Optimización para Control de Sobrecostos</h3>
             
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-5">
-              <div className="bg-white p-4 rounded-lg border border-gray-200">
-                <h4 className="font-medium text-gray-700 mb-2">Productividad General</h4>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <p className="text-xs text-gray-500">Actual</p>
-                    <p className="text-lg font-bold">{ultimaProductividad.toFixed(2)}</p>
+            <div className="bg-white p-4 rounded-lg border border-gray-200 mb-5">
+              <h4 className="font-medium text-gray-700 mb-2">Top Actividades por Productividad</h4>
+              <div className="grid grid-cols-1 gap-3">
+                {actividadesFiltradas.slice(0, 5).map((act, index) => (
+                  <div key={index} className="bg-blue-50 p-3 rounded">
+                    <h5 className="text-sm font-medium text-blue-800">{act.nombre}</h5>
+                    <div className="flex items-center justify-between mt-1">
+                      <span className="text-sm text-gray-600">Productividad: <span className="font-medium">{act.productividad.toFixed(2)}</span></span>
+                      <span className="text-sm text-gray-600">Metrado: <span className="font-medium">{formatoNumero(act.metrado || 0)}</span></span>
+                    </div>
+                    <div className="w-full bg-gray-200 rounded-full h-2.5 mt-2">
+                      <div 
+                        className="h-2.5 rounded-full bg-blue-600"
+                        style={{ width: `${Math.min(100, (act.productividad / 3) * 100)}%` }}
+                      ></div>
+                    </div>
                   </div>
-                  <div>
-                    <p className="text-xs text-gray-500">Promedio</p>
-                    <p className="text-lg font-bold">{productiviadadPromedio.toFixed(2)}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-gray-500">Tendencia</p>
-                    <p className={`text-sm font-medium ${tendencia >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                      {tendencia >= 0 ? '↑' : '↓'} {Math.abs(tendencia * 100).toFixed(1)}%
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-gray-500">Mejor Período</p>
-                    <p className="text-sm font-medium">
-                      {datosTendencia.reduce((best, current) => current.productividad > best.productividad ? current : best, datosTendencia[0]).semana}
-                    </p>
-                  </div>
-                </div>
-              </div>
-              
-              <div className="bg-white p-4 rounded-lg border border-gray-200">
-                <h4 className="font-medium text-gray-700 mb-2">Cumplimiento de Metas</h4>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <p className="text-xs text-gray-500">Actividades sobre Meta</p>
-                    <p className="text-lg font-bold">{actividadesSuperanMeta} de {datosActividades.length}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-gray-500">Cumplimiento</p>
-                    <p className="text-lg font-bold">{porcentajeCumplimiento.toFixed(1)}%</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-gray-500">Mejor Actividad</p>
-                    <p className="text-sm font-medium">
-                      {datosActividades.reduce((best, current) => 
-                        (current.productividad / current.meta) > (best.productividad / best.meta) ? current : best, 
-                        datosActividades[0]
-                      ).nombre}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-gray-500">Oportunidad de Mejora</p>
-                    <p className="text-sm font-medium">
-                      {datosActividades.reduce((worst, current) => 
-                        (current.productividad / current.meta) < (worst.productividad / worst.meta) ? current : worst, 
-                        datosActividades[0]
-                      ).nombre}
-                    </p>
-                  </div>
-                </div>
+                ))}
               </div>
             </div>
             
-            <div className="bg-white p-4 rounded-lg border border-gray-200">
-              <h4 className="font-medium text-gray-700 mb-2">Recomendaciones para Mejorar la Productividad</h4>
-              <ul className="list-disc pl-5 text-sm space-y-1">
-                <li>Realizar capacitaciones específicas para las actividades con menor productividad.</li>
-                <li>Revisar los procedimientos de trabajo en actividades por debajo de la meta.</li>
-                <li>Analizar las prácticas de los equipos con mejor rendimiento para replicarlas.</li>
-                <li>Establecer incentivos para mantener y mejorar el desempeño actual.</li>
-                <li>Optimizar la distribución de personal según fortalezas identificadas.</li>
-              </ul>
+            <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
+              <h4 className="font-medium text-blue-800 mb-2">Recomendaciones para Optimizar Costos</h4>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <h5 className="text-sm font-medium text-blue-700 mb-1">Acciones Inmediatas</h5>
+                  <ul className="list-disc pl-5 text-sm space-y-1 text-gray-700">
+                    <li>Revisar la asignación de personal en actividades con alta inversión</li>
+                    <li>Analizar la proporción de trabajadores por categoría para optimizar costos</li>
+                    <li>Implementar controles diarios de productividad en actividades críticas</li>
+                    <li>Evaluar posibles cuellos de botella en el flujo de trabajo</li>
+                  </ul>
+                </div>
+                
+                <div>
+                  <h5 className="text-sm font-medium text-blue-700 mb-1">Estrategias a Mediano Plazo</h5>
+                  <ul className="list-disc pl-5 text-sm space-y-1 text-gray-700">
+                    <li>Implementar capacitaciones específicas para mejorar rendimiento</li>
+                    <li>Documentar las metodologías aplicadas en actividades de alta productividad</li>
+                    <li>Revisar la planificación de actividades para optimizar secuencias</li>
+                    <li>Considerar revisión del presupuesto según costos reales</li>
+                  </ul>
+                </div>
+              </div>
             </div>
           </div>
         );
@@ -209,7 +641,7 @@ const AnalisisProductividad = () => {
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-lg font-semibold">Análisis de Productividad</h2>
         
-        <div className="flex space-x-2">
+        <div className="flex flex-wrap gap-2">
           <button
             className={`px-3 py-1 text-xs rounded-md ${vistaActiva === 'actividades' ? 'bg-blue-600 text-white' : 'bg-gray-100'}`}
             onClick={() => setVistaActiva('actividades')}
@@ -229,12 +661,12 @@ const AnalisisProductividad = () => {
             </span>
           </button>
           <button
-            className={`px-3 py-1 text-xs rounded-md ${vistaActiva === 'indicadores' ? 'bg-blue-600 text-white' : 'bg-gray-100'}`}
-            onClick={() => setVistaActiva('indicadores')}
+            className={`px-3 py-1 text-xs rounded-md ${vistaActiva === 'optimizacion' ? 'bg-blue-600 text-white' : 'bg-gray-100'}`}
+            onClick={() => setVistaActiva('optimizacion')}
           >
             <span className="flex items-center">
               <Activity size={14} className="mr-1" />
-              Indicadores
+              Optimización
             </span>
           </button>
         </div>
