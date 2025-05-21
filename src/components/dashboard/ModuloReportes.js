@@ -10,13 +10,10 @@ import {
   ExternalLink, 
   Code, 
   X, 
-  ArrowUp, 
-  ArrowDown, 
   Search, 
   Filter, 
   ChevronDown, 
   Calendar as CalendarIcon, 
-  Users, 
   DollarSign,
   BarChart2,
   AlertCircle,
@@ -66,22 +63,64 @@ const ModuloReportes = () => {
   const [creadoresList, setCreadoresList] = useState([]);
   const [bloquesList, setBloquesList] = useState([]);
   
-  // Registrar información de depuración sobre los reportes cargados
-  useEffect(() => {
-    console.log("Estado actual de reportes:", {
-      cargando: loading,
-      reportesTotales: reportesOriginales.length,
-      usandoDatosPrueba: useMockData,
-      db: !!db
+  // Función auxiliar para formatear fechas (YYYY-MM-DD a DD/MM/YYYY)
+  const formatearFecha = (fechaStr) => {
+    if (!fechaStr) return '';
+    
+    const partes = fechaStr.split('-');
+    if (partes.length !== 3) return fechaStr;
+    
+    return `${partes[2]}/${partes[1]}/${partes[0]}`;
+  };
+  
+  // Función para calcular el avance a partir de metrado programado y ejecutado
+  const calculateAvance = (metradoP, metradoE) => {
+    if (!metradoP || metradoP === 0) return "0%";
+    const avance = (metradoE / metradoP) * 100;
+    return `${avance.toFixed(1)}%`;
+  };
+  
+  // Función para limpiar filtros
+  const limpiarFiltros = () => {
+    setBusquedaTexto('');
+    setFiltroCreador('');
+    setFiltroFecha({
+      inicio: '',
+      fin: ''
     });
-    
-    if (reportesOriginales.length > 0) {
-      console.log("Primer reporte de ejemplo:", reportesOriginales[0]);
-    } else if (!loading) {
-      console.log("No se encontraron reportes");
+    setFiltroBloque('');
+    setFiltroValorizadoMin('');
+    setFiltroValorizadoMax('');
+    setOrdenCampo('totalValorizado');
+    setOrdenDireccion('desc');
+  };
+  
+  // Función para aplicar filtros
+  const aplicarFiltros = () => {
+    // Esta función es principalmente para mantener coherencia con la UI
+    // Los filtros se aplican automáticamente mediante los efectos y memo
+    setMostrarFiltrosAvanzados(false);
+  };
+  
+  // Función para obtener filtro de fecha para el gráfico
+  const obtenerFiltroFecha = () => {
+    if (filtroFecha.inicio && filtroFecha.fin) {
+      return filtroFecha;
     }
+    return null;
+  };
+  
+  // Función para generar enlace para compartir
+  const generarEnlaceCompartir = (reporte) => {
+    const enlace = `${window.location.origin}/dashboard?reporteId=${reporte.id || reporte.reporteId}`;
+    setEnlaceCompartir(enlace);
+    setMostrarEnlace(true);
     
-  }, [reportesOriginales, loading, useMockData, db]);
+    // Ocultar el enlace después de 30 segundos
+    setTimeout(() => {
+      setMostrarEnlace(false);
+    }, 30000);
+  };
   
   useEffect(() => {
     // Extraer lista de creadores únicos
@@ -205,13 +244,10 @@ const ModuloReportes = () => {
         cargando: true
       });
       
-      console.log("Cargando detalles para reporte:", reporte.id || reporte.reporteId);
-      
       let reporteCompleto = null;
       
       // Si usamos datos simulados, generarlos directamente
       if (useMockData || !db) {
-        console.log("Usando datos simulados para el reporte");
         reporteCompleto = generarDatosReporteSimulado(reporte);
       } else {
         // Intentar cargar datos reales de Firebase
@@ -257,410 +293,380 @@ const ModuloReportes = () => {
   };
   
   // Función para cargar datos completos del reporte desde Firebase
-  // Función para cargar datos completos del reporte desde Firebase - Modificada
-const cargarDatosReporteFirebase = async (reporte) => {
-  const reporteId = reporte.id || reporte.reporteId;
-  
-  if (!reporteId) {
-    throw new Error("ID de reporte no válido");
-  }
-  
-  console.log(`Intentando cargar reporte de Firebase con ID: ${reporteId}`);
-  
-  // Primero, obtener información del reporte desde Reportes_Links para el valor valorizado
-  let gananciaTotal = 0;
-  try {
-    const reporteLinkRef = doc(db, 'Reportes_Links', reporteId);
-    const reporteLinkDoc = await getDoc(reporteLinkRef);
+  const cargarDatosReporteFirebase = async (reporte) => {
+    const reporteId = reporte.id || reporte.reporteId;
     
-    if (reporteLinkDoc.exists()) {
-      const datosLink = reporteLinkDoc.data();
-      // CAMBIO: Ahora el totalValorizado es directamente la ganancia
-      gananciaTotal = datosLink.totalValorizado || 0;
-      console.log(`Ganancia total (totalValorizado) encontrada en Reportes_Links: ${gananciaTotal}`);
-    } else {
-      console.log(`No se encontró el reporte en Reportes_Links, buscando en otros datos`);
-      // Intentar obtener de los datos pasados del reporte
+    if (!reporteId) {
+      throw new Error("ID de reporte no válido");
+    }
+    
+    // Primero, obtener información del reporte desde Reportes_Links para el valor valorizado
+    let gananciaTotal = 0;
+    try {
+      const reporteLinkRef = doc(db, 'Reportes_Links', reporteId);
+      const reporteLinkDoc = await getDoc(reporteLinkRef);
+      
+      if (reporteLinkDoc.exists()) {
+        const datosLink = reporteLinkDoc.data();
+        // CAMBIO: Ahora el totalValorizado es directamente la ganancia
+        gananciaTotal = datosLink.totalValorizado || 0;
+      } else {
+        // Intentar obtener de los datos pasados del reporte
+        gananciaTotal = reporte.totalValorizado || 0;
+      }
+    } catch (error) {
+      console.error("Error al buscar en Reportes_Links:", error);
+      // Fallar de forma silenciosa y usar el valor del reporte pasado
       gananciaTotal = reporte.totalValorizado || 0;
     }
-  } catch (error) {
-    console.error("Error al buscar en Reportes_Links:", error);
-    // Fallar de forma silenciosa y usar el valor del reporte pasado
-    gananciaTotal = reporte.totalValorizado || 0;
-  }
-  
-  // Obtener el documento principal del reporte
-  const reporteRef = doc(db, 'Reportes', reporteId);
-  const reporteDoc = await getDoc(reporteRef);
-  
-  if (!reporteDoc.exists()) {
-    console.log(`No se encontró el reporte con ID ${reporteId} en la colección 'Reportes'`);
-    throw new Error("Reporte no encontrado");
-  }
-  
-  // Obtener datos del documento principal
-  const datosReporte = reporteDoc.data();
-  console.log("Datos del reporte obtenidos:", datosReporte);
-  
-  // Obtener subcolecciones (actividades y mano de obra)
-  const actividadesRef = collection(db, `Reportes/${reporteId}/actividades`);
-  const manoObraRef = collection(db, `Reportes/${reporteId}/mano_obra`);
-  
-  const [actividadesSnapshot, manoObraSnapshot] = await Promise.all([
-    getDocs(actividadesRef),
-    getDocs(manoObraRef)
-  ]);
-  
-  // Convertir a arrays
-  const actividades = actividadesSnapshot.docs.map(doc => {
-    const data = doc.data();
-    // Asegurar estructura correcta
+    
+    // Obtener el documento principal del reporte
+    const reporteRef = doc(db, 'Reportes', reporteId);
+    const reporteDoc = await getDoc(reporteRef);
+    
+    if (!reporteDoc.exists()) {
+      console.log(`No se encontró el reporte con ID ${reporteId} en la colección 'Reportes'`);
+      throw new Error("Reporte no encontrado");
+    }
+    
+    // Obtener datos del documento principal
+    const datosReporte = reporteDoc.data();
+    
+    // Obtener subcolecciones (actividades y mano de obra)
+    const actividadesRef = collection(db, `Reportes/${reporteId}/actividades`);
+    const manoObraRef = collection(db, `Reportes/${reporteId}/mano_obra`);
+    
+    const [actividadesSnapshot, manoObraSnapshot] = await Promise.all([
+      getDocs(actividadesRef),
+      getDocs(manoObraRef)
+    ]);
+    
+    // Convertir a arrays
+    const actividades = actividadesSnapshot.docs.map(doc => {
+      const data = doc.data();
+      // Asegurar estructura correcta
+      return {
+        id: doc.id,
+        nombre: data.proceso || data.nombre || `Actividad ${doc.id}`,
+        und: data.und || data.unidad || "UND",
+        metradoP: parseFloat(data.metradoP || 0),
+        metradoE: parseFloat(data.metradoE || 0),
+        avance: data.avance || calculateAvance(data.metradoP, data.metradoE),
+        causas: data.causas || ""
+      };
+    });
+    
+    // Si no hay actividades, lanzar error para probar el siguiente método
+    if (actividades.length === 0) {
+      throw new Error("No se encontraron actividades para este reporte");
+    }
+    
+    // Calcular el total de horas trabajadas y costo de mano de obra
+    let totalHorasTrabajadas = 0;
+    let totalCostoMO = 0;
+    
+    manoObraSnapshot.docs.forEach(doc => {
+      const data = doc.data();
+      const categoria = data.categoria || "DEFAULT";
+      const totalHoras = Array.isArray(data.horas) 
+        ? data.horas.reduce((sum, h) => sum + parseFloat(h || 0), 0)
+        : parseFloat(data.totalHoras || 0);
+      
+      const costoMO = calcularCostoPorCategoria(categoria, totalHoras);
+      totalHorasTrabajadas += totalHoras;
+      totalCostoMO += costoMO;
+    });
+    
+    // CAMBIO PRINCIPAL: Calcular el costo de expediente basado en el costo de mano de obra + ganancia
+    const totalCostoExpediente = totalCostoMO + gananciaTotal;
+    
+    // Calcular ganancia por hora para distribuir proporcionalmente entre trabajadores
+    const gananciaPorHora = totalHorasTrabajadas > 0 ? gananciaTotal / totalHorasTrabajadas : 0;
+    
+    const trabajadores = manoObraSnapshot.docs.map(doc => {
+      const data = doc.data();
+      
+      // Calcular las horas por actividad (texto descriptivo)
+      let horasActividad = "";
+      if (Array.isArray(data.horas)) {
+        data.horas.forEach((h, idx) => {
+          if (h && parseFloat(h) > 0) {
+            const actividadNombre = idx < actividades.length ? actividades[idx].nombre : `Actividad ${idx+1}`;
+            horasActividad += `${actividadNombre}: ${h}h\n`;
+          }
+        });
+      }
+      
+      // Calcular horas totales
+      const totalHoras = Array.isArray(data.horas) 
+        ? data.horas.reduce((sum, h) => sum + parseFloat(h || 0), 0)
+        : parseFloat(data.totalHoras || 0);
+      
+      // Calcular costos basados en categoría
+      const categoria = data.categoria || "DEFAULT";
+      
+      // Costo MO: Es el costo real basado en la categoría del trabajador
+      const costoMO = calcularCostoPorCategoria(categoria, totalHoras);
+      
+      // CAMBIO: Calcular la ganancia proporcional para este trabajador
+      const gananciaIndividual = totalHoras * gananciaPorHora;
+      
+      // CAMBIO: El costo de expediente es el costo MO + la ganancia individual
+      const costoExpediente = costoMO + gananciaIndividual;
+      
+      return {
+        nombre: data.trabajador || data.nombre || "Sin nombre",
+        categoria: data.categoria || "SIN CATEGORÍA",
+        horasActividad: horasActividad || "No hay detalle de horas",
+        totalHoras: totalHoras,
+        costoMO: costoMO,
+        costoExpediente: costoExpediente,
+        ganancia: gananciaIndividual // Ahora es proporcional a sus horas
+      };
+    });
+    
+    // Si no hay trabajadores, lanzar error para probar el siguiente método
+    if (trabajadores.length === 0) {
+      throw new Error("No se encontraron trabajadores para este reporte");
+    }
+    
+    // Crear el reporte completo
     return {
-      id: doc.id,
-      nombre: data.proceso || data.nombre || `Actividad ${doc.id}`,
-      und: data.und || data.unidad || "UND",
-      metradoP: parseFloat(data.metradoP || 0),
-      metradoE: parseFloat(data.metradoE || 0),
-      avance: data.avance || calculateAvance(data.metradoP, data.metradoE),
-      causas: data.causas || ""
+      ...reporte,
+      ...datosReporte,
+      actividades,
+      trabajadores,
+      totales: {
+        horas: totalHorasTrabajadas,
+        costoMO: totalCostoMO,
+        costoExpediente: totalCostoExpediente,
+        ganancia: gananciaTotal
+      }
     };
-  });
+  };
   
-  // Si no hay actividades, lanzar error para probar el siguiente método
-  if (actividades.length === 0) {
-    throw new Error("No se encontraron actividades para este reporte");
-  }
-  
-  // Calcular el total de horas trabajadas y costo de mano de obra
-  let totalHorasTrabajadas = 0;
-  let totalCostoMO = 0;
-  
-  manoObraSnapshot.docs.forEach(doc => {
-    const data = doc.data();
-    const categoria = data.categoria || "DEFAULT";
-    const totalHoras = Array.isArray(data.horas) 
-      ? data.horas.reduce((sum, h) => sum + parseFloat(h || 0), 0)
-      : parseFloat(data.totalHoras || 0);
+  // Función alternativa para cargar datos simplificados si falla el método principal
+  const cargarDatosReporteSimplificado = async (reporte) => {
+    const reporteId = reporte.id || reporte.reporteId;
     
-    const costoMO = calcularCostoPorCategoria(categoria, totalHoras);
-    totalHorasTrabajadas += totalHoras;
-    totalCostoMO += costoMO;
-  });
-  
-  // CAMBIO PRINCIPAL: Calcular el costo de expediente basado en el costo de mano de obra + ganancia
-  const totalCostoExpediente = totalCostoMO + gananciaTotal;
-  
-  // Calcular ganancia por hora para distribuir proporcionalmente entre trabajadores
-  const gananciaPorHora = totalHorasTrabajadas > 0 ? gananciaTotal / totalHorasTrabajadas : 0;
-  console.log(`Total horas trabajadas: ${totalHorasTrabajadas}, Ganancia por hora: ${gananciaPorHora}`);
-  
-  const trabajadores = manoObraSnapshot.docs.map(doc => {
-    const data = doc.data();
+    if (!reporteId) {
+      throw new Error("ID de reporte no válido");
+    }
     
-    // Calcular las horas por actividad (texto descriptivo)
-    let horasActividad = "";
-    if (Array.isArray(data.horas)) {
-      data.horas.forEach((h, idx) => {
-        if (h && parseFloat(h) > 0) {
-          const actividadNombre = idx < actividades.length ? actividades[idx].nombre : `Actividad ${idx+1}`;
-          horasActividad += `${actividadNombre}: ${h}h\n`;
-        }
+    // Primero obtener desde Reportes_Links para el valor valorizado
+    let gananciaTotal = 0;
+    let datosReporte = { ...reporte };
+    
+    try {
+      const reporteLinksRef = doc(db, 'Reportes_Links', reporteId);
+      const reporteLinksDoc = await getDoc(reporteLinksRef);
+      
+      if (reporteLinksDoc.exists()) {
+        const datosLink = reporteLinksDoc.data();
+        datosReporte = { ...datosReporte, ...datosLink };
+        // CAMBIO: Ahora el totalValorizado es directamente la ganancia
+        gananciaTotal = datosLink.totalValorizado || 0;
+      } else {
+        gananciaTotal = reporte.totalValorizado || 0;
+      }
+    } catch (error) {
+      console.error("Error al buscar en Reportes_Links:", error);
+      gananciaTotal = reporte.totalValorizado || 0;
+    }
+    
+    // Asegurar que tenemos un valor para la ganancia
+    
+    // Estimar actividades y trabajadores basados en la información disponible
+    const totalActividades = datosReporte.totalActividades || 2;
+    const totalTrabajadores = datosReporte.totalTrabajadores || 3;
+    
+    // Generar actividades simuladas
+    const actividades = [];
+    for (let i = 0; i < totalActividades; i++) {
+      actividades.push({
+        nombre: `Actividad ${i + 1}`,
+        und: "UND",
+        metradoP: 100,
+        metradoE: 90,
+        avance: "90%",
+        causas: ""
       });
     }
     
-    // Calcular horas totales
-    const totalHoras = Array.isArray(data.horas) 
-      ? data.horas.reduce((sum, h) => sum + parseFloat(h || 0), 0)
-      : parseFloat(data.totalHoras || 0);
+    // Generar trabajadores simulados
+    const trabajadores = [];
     
-    // Calcular costos basados en categoría
-    const categoria = data.categoria || "DEFAULT";
+    // Estimar horas totales basado en el patrón típico (aproximadamente 16 horas por trabajador)
+    const horasPorTrabajador = 16;
+    const totalHorasEstimadas = horasPorTrabajador * totalTrabajadores;
     
-    // Costo MO: Es el costo real basado en la categoría del trabajador
-    const costoMO = calcularCostoPorCategoria(categoria, totalHoras);
+    // Calcular ganancia por hora para distribuir proporcionalmente
+    const gananciaPorHora = totalHorasEstimadas > 0 ? gananciaTotal / totalHorasEstimadas : 0;
     
-    // CAMBIO: Calcular la ganancia proporcional para este trabajador
-    const gananciaIndividual = totalHoras * gananciaPorHora;
+    const categorias = ["OPERARIO", "OFICIAL", "PEON"];
+    let totalCostoMO = 0;
     
-    // CAMBIO: El costo de expediente es el costo MO + la ganancia individual
-    const costoExpediente = costoMO + gananciaIndividual;
+    for (let i = 0; i < totalTrabajadores; i++) {
+      const categoria = categorias[i % categorias.length];
+      const totalHoras = horasPorTrabajador;
+      
+      // Costo MO: Es el costo real basado en la categoría del trabajador
+      const costoMO = calcularCostoPorCategoria(categoria, totalHoras);
+      totalCostoMO += costoMO;
+      
+      // CAMBIO: Calcular ganancia proporcional
+      const gananciaIndividual = totalHoras * gananciaPorHora;
+      
+      // CAMBIO: Costo expediente es costo MO + ganancia
+      const costoExpediente = costoMO + gananciaIndividual;
+      
+      trabajadores.push({
+        nombre: `Trabajador ${i + 1}`,
+        categoria: categoria,
+        horasActividad: "Actividades varias",
+        totalHoras: totalHoras,
+        costoMO: costoMO,
+        costoExpediente: costoExpediente,
+        ganancia: gananciaIndividual
+      });
+    }
     
+    // Calcular totales
+    const totalHoras = trabajadores.reduce((sum, t) => sum + (t.totalHoras || 0), 0);
+    const totalCostoExpediente = totalCostoMO + gananciaTotal;
+    
+    // Crear el reporte con datos reales + estimaciones
     return {
-      nombre: data.trabajador || data.nombre || "Sin nombre",
-      categoria: data.categoria || "SIN CATEGORÍA",
-      horasActividad: horasActividad || "No hay detalle de horas",
-      totalHoras: totalHoras,
-      costoMO: costoMO,
-      costoExpediente: costoExpediente,
-      ganancia: gananciaIndividual // Ahora es proporcional a sus horas
+      ...datosReporte,
+      actividades,
+      trabajadores,
+      totales: {
+        horas: totalHoras,
+        costoMO: totalCostoMO,
+        costoExpediente: totalCostoExpediente,
+        ganancia: gananciaTotal
+      }
     };
-  });
-  
-  // Si no hay trabajadores, lanzar error para probar el siguiente método
-  if (trabajadores.length === 0) {
-    throw new Error("No se encontraron trabajadores para este reporte");
-  }
-  
-  // Verificar totales (para depuración)
-  const totalGananciaTrabajadores = trabajadores.reduce((sum, t) => sum + (t.ganancia || 0), 0);
-  console.log(`Ganancia total original: ${gananciaTotal}, Suma de ganancias individuales: ${totalGananciaTrabajadores}`);
-  
-  // Crear el reporte completo
-  return {
-    ...reporte,
-    ...datosReporte,
-    actividades,
-    trabajadores,
-    totales: {
-      horas: totalHorasTrabajadas,
-      costoMO: totalCostoMO,
-      costoExpediente: totalCostoExpediente,
-      ganancia: gananciaTotal
-    }
   };
-};
-
-// Función alternativa para cargar datos simplificados si falla el método principal - Modificada
-const cargarDatosReporteSimplificado = async (reporte) => {
-  const reporteId = reporte.id || reporte.reporteId;
   
-  if (!reporteId) {
-    throw new Error("ID de reporte no válido");
-  }
-  
-  console.log(`Intentando cargar datos simplificados para reporte: ${reporteId}`);
-  
-  // Primero obtener desde Reportes_Links para el valor valorizado
-  let gananciaTotal = 0;
-  let datosReporte = { ...reporte };
-  
-  try {
-    const reporteLinksRef = doc(db, 'Reportes_Links', reporteId);
-    const reporteLinksDoc = await getDoc(reporteLinksRef);
+  // Función para generar datos de reporte simulados
+  const generarDatosReporteSimulado = (reporte) => {
+    // Obtener el valor total valorizado (ganancia) si existe en el reporte
+    const gananciaTotal = reporte.totalValorizado || 864; // Valor predeterminado si no hay datos
     
-    if (reporteLinksDoc.exists()) {
-      const datosLink = reporteLinksDoc.data();
-      datosReporte = { ...datosReporte, ...datosLink };
-      // CAMBIO: Ahora el totalValorizado es directamente la ganancia
-      gananciaTotal = datosLink.totalValorizado || 0;
-      console.log(`Ganancia total (totalValorizado) encontrada en Reportes_Links: ${gananciaTotal}`);
-    } else {
-      console.log(`No se encontró el reporte en Reportes_Links, usando datos pasados`);
-      gananciaTotal = reporte.totalValorizado || 0;
-    }
-  } catch (error) {
-    console.error("Error al buscar en Reportes_Links:", error);
-    gananciaTotal = reporte.totalValorizado || 0;
-  }
-  
-  // Asegurar que tenemos un valor para la ganancia
-  console.log(`Ganancia total a utilizar: ${gananciaTotal}`);
-  
-  // Estimar actividades y trabajadores basados en la información disponible
-  const totalActividades = datosReporte.totalActividades || 2;
-  const totalTrabajadores = datosReporte.totalTrabajadores || 3;
-  
-  // Generar actividades simuladas
-  const actividades = [];
-  for (let i = 0; i < totalActividades; i++) {
-    actividades.push({
-      nombre: `Actividad ${i + 1}`,
-      und: "UND",
-      metradoP: 100,
-      metradoE: 90,
-      avance: "90%",
-      causas: ""
-    });
-  }
-  
-  // Generar trabajadores simulados
-  const trabajadores = [];
-  
-  // Estimar horas totales basado en el patrón típico (aproximadamente 16 horas por trabajador)
-  const horasPorTrabajador = 16;
-  const totalHorasEstimadas = horasPorTrabajador * totalTrabajadores;
-  
-  // Calcular ganancia por hora para distribuir proporcionalmente
-  const gananciaPorHora = totalHorasEstimadas > 0 ? gananciaTotal / totalHorasEstimadas : 0;
-  console.log(`Horas estimadas: ${totalHorasEstimadas}, Ganancia por hora: ${gananciaPorHora}`);
-  
-  const categorias = ["OPERARIO", "OFICIAL", "PEON"];
-  let totalCostoMO = 0;
-  
-  for (let i = 0; i < totalTrabajadores; i++) {
-    const categoria = categorias[i % categorias.length];
-    const totalHoras = horasPorTrabajador;
+    // Actividades simuladas
+    const actividades = [
+      {
+        nombre: "SUMINISTRO DE MESA DE TRABAJO GRUPAL REGULABLE 1",
+        und: "UND",
+        metradoP: 70.00,
+        metradoE: 69.00,
+        avance: "98.6%",
+        causas: "causas 2 prueba"
+      },
+      {
+        nombre: "TRANSPORTE VERTICAL",
+        und: "UND",
+        metradoP: 50.00,
+        metradoE: 50.00,
+        avance: "100.0%",
+        causas: "causas 1"
+      }
+    ];
     
-    // Costo MO: Es el costo real basado en la categoría del trabajador
-    const costoMO = calcularCostoPorCategoria(categoria, totalHoras);
-    totalCostoMO += costoMO;
+    // Configuración simulada
+    const horasTrabajo = 16.0; // 8 horas por actividad (2 actividades)
+    const totalTrabajadores = 3;
+    const totalHoras = horasTrabajo * totalTrabajadores;
     
-    // CAMBIO: Calcular ganancia proporcional
-    const gananciaIndividual = totalHoras * gananciaPorHora;
+    // CAMBIO: Calcular ganancia por hora para distribuir proporcionalmente
+    const gananciaPorHora = gananciaTotal / totalHoras;
     
-    // CAMBIO: Costo expediente es costo MO + ganancia
-    const costoExpediente = costoMO + gananciaIndividual;
+    // Generar costos de mano de obra
+    const costoOperario = 23.00 * horasTrabajo; // 368.00
+    const costoOficial = 18.09 * horasTrabajo;  // 289.44
+    const costoPeon = 16.38 * horasTrabajo;     // 262.08
+    const totalCostoMO = costoOperario + costoOficial + costoPeon;
     
-    trabajadores.push({
-      nombre: `Trabajador ${i + 1}`,
-      categoria: categoria,
-      horasActividad: "Actividades varias",
-      totalHoras: totalHoras,
-      costoMO: costoMO,
-      costoExpediente: costoExpediente,
-      ganancia: gananciaIndividual
-    });
-  }
-  
-  // Calcular totales
-  const totalHoras = trabajadores.reduce((sum, t) => sum + (t.totalHoras || 0), 0);
-  const totalCostoExpediente = totalCostoMO + gananciaTotal;
-  
-  // Crear el reporte con datos reales + estimaciones
-  return {
-    ...datosReporte,
-    actividades,
-    trabajadores,
-    totales: {
-      horas: totalHoras,
-      costoMO: totalCostoMO,
-      costoExpediente: totalCostoExpediente,
-      ganancia: gananciaTotal
-    }
+    // Calcular ganancias individuales proporcionales
+    const gananciaOperario = horasTrabajo * gananciaPorHora;
+    const gananciaOficial = horasTrabajo * gananciaPorHora;
+    const gananciaPeon = horasTrabajo * gananciaPorHora;
+    
+    // CAMBIO: Costo expediente = costo MO + ganancia
+    const costoExpedienteOperario = costoOperario + gananciaOperario;
+    const costoExpedienteOficial = costoOficial + gananciaOficial;
+    const costoExpedientePeon = costoPeon + gananciaPeon;
+    
+    // Trabajadores simulados con los cálculos corregidos
+    const trabajadores = [
+      {
+        nombre: "LUPINTA AMANQUI FERMIN BENEDICTO",
+        categoria: "OPERARIO",
+        horasActividad: "SUMINISTRO DE MESA DE TRABAJO GRUPAL REGULABLE 1: 8.0h\nTRANSPORTE VERTICAL: 8.0h",
+        totalHoras: horasTrabajo,
+        costoMO: costoOperario,
+        costoExpediente: costoExpedienteOperario,
+        ganancia: gananciaOperario
+      },
+      {
+        nombre: "CRUZ SUBELETE PURIFICACION",
+        categoria: "OFICIAL",
+        horasActividad: "SUMINISTRO DE MESA DE TRABAJO GRUPAL REGULABLE 1: 8.0h\nTRANSPORTE VERTICAL: 8.0h",
+        totalHoras: horasTrabajo,
+        costoMO: costoOficial,
+        costoExpediente: costoExpedienteOficial,
+        ganancia: gananciaOficial
+      },
+      {
+        nombre: "QUISPE HUAMAN ROBERTO",
+        categoria: "PEON",
+        horasActividad: "SUMINISTRO DE MESA DE TRABAJO GRUPAL REGULABLE 1: 8.0h\nTRANSPORTE VERTICAL: 8.0h",
+        totalHoras: horasTrabajo,
+        costoMO: costoPeon,
+        costoExpediente: costoExpedientePeon,
+        ganancia: gananciaPeon
+      }
+    ];
+    
+    // Calcular totales
+    const totalHorasCalculado = trabajadores.reduce((sum, t) => sum + t.totalHoras, 0);
+    // CAMBIO: Costo expediente = costo MO + ganancia
+    const totalCostoExpediente = totalCostoMO + gananciaTotal;
+    
+    // Crear el reporte completo
+    return {
+      ...reporte,
+      actividades,
+      trabajadores,
+      totales: {
+        horas: totalHorasCalculado,
+        costoMO: totalCostoMO,
+        costoExpediente: totalCostoExpediente,
+        ganancia: gananciaTotal
+      }
+    };
   };
-};
-
-// Función para generar datos de reporte simulados - Modificada
-const generarDatosReporteSimulado = (reporte) => {
-  console.log("Generando datos simulados para reporte:", reporte.id || reporte.reporteId);
   
-  // Obtener el valor total valorizado (ganancia) si existe en el reporte
-  const gananciaTotal = reporte.totalValorizado || 864; // Valor predeterminado si no hay datos
-  console.log(`Ganancia total (totalValorizado) para simulación: ${gananciaTotal}`);
-  
-  // Actividades simuladas
-  const actividades = [
-    {
-      nombre: "SUMINISTRO DE MESA DE TRABAJO GRUPAL REGULABLE 1",
-      und: "UND",
-      metradoP: 70.00,
-      metradoE: 69.00,
-      avance: "98.6%",
-      causas: "causas 2 prueba"
-    },
-    {
-      nombre: "TRANSPORTE VERTICAL",
-      und: "UND",
-      metradoP: 50.00,
-      metradoE: 50.00,
-      avance: "100.0%",
-      causas: "causas 1"
-    }
-  ];
-  
-  // Configuración simulada
-  const horasTrabajo = 16.0; // 8 horas por actividad (2 actividades)
-  const totalTrabajadores = 3;
-  const totalHoras = horasTrabajo * totalTrabajadores;
-  
-  // CAMBIO: Calcular ganancia por hora para distribuir proporcionalmente
-  const gananciaPorHora = gananciaTotal / totalHoras;
-  console.log(`Ganancia por hora calculada: ${gananciaPorHora}`);
-  
-  // Generar costos de mano de obra
-  const costoOperario = 23.00 * horasTrabajo; // 368.00
-  const costoOficial = 18.09 * horasTrabajo;  // 289.44
-  const costoPeon = 16.38 * horasTrabajo;     // 262.08
-  const totalCostoMO = costoOperario + costoOficial + costoPeon;
-  
-  // Calcular ganancias individuales proporcionales
-  const gananciaOperario = horasTrabajo * gananciaPorHora;
-  const gananciaOficial = horasTrabajo * gananciaPorHora;
-  const gananciaPeon = horasTrabajo * gananciaPorHora;
-  
-  // CAMBIO: Costo expediente = costo MO + ganancia
-  const costoExpedienteOperario = costoOperario + gananciaOperario;
-  const costoExpedienteOficial = costoOficial + gananciaOficial;
-  const costoExpedientePeon = costoPeon + gananciaPeon;
-  
-  // Trabajadores simulados con los cálculos corregidos
-  const trabajadores = [
-    {
-      nombre: "LUPINTA AMANQUI FERMIN BENEDICTO",
-      categoria: "OPERARIO",
-      horasActividad: "SUMINISTRO DE MESA DE TRABAJO GRUPAL REGULABLE 1: 8.0h\nTRANSPORTE VERTICAL: 8.0h",
-      totalHoras: horasTrabajo,
-      costoMO: costoOperario,
-      costoExpediente: costoExpedienteOperario,
-      ganancia: gananciaOperario
-    },
-    {
-      nombre: "CRUZ SUBELETE PURIFICACION",
-      categoria: "OFICIAL",
-      horasActividad: "SUMINISTRO DE MESA DE TRABAJO GRUPAL REGULABLE 1: 8.0h\nTRANSPORTE VERTICAL: 8.0h",
-      totalHoras: horasTrabajo,
-      costoMO: costoOficial,
-      costoExpediente: costoExpedienteOficial,
-      ganancia: gananciaOficial
-    },
-    {
-      nombre: "QUISPE HUAMAN ROBERTO",
-      categoria: "PEON",
-      horasActividad: "SUMINISTRO DE MESA DE TRABAJO GRUPAL REGULABLE 1: 8.0h\nTRANSPORTE VERTICAL: 8.0h",
-      totalHoras: horasTrabajo,
-      costoMO: costoPeon,
-      costoExpediente: costoExpedientePeon,
-      ganancia: gananciaPeon
-    }
-  ];
-  
-  // Calcular totales
-  const totalHorasCalculado = trabajadores.reduce((sum, t) => sum + t.totalHoras, 0);
-  // CAMBIO: Costo expediente = costo MO + ganancia
-  const totalCostoExpediente = totalCostoMO + gananciaTotal;
-  
-  // Verificar totales para depuración
-  const totalGananciaTrabajadores = trabajadores.reduce((sum, t) => sum + t.ganancia, 0);
-  console.log(`Ganancia total original: ${gananciaTotal}, Suma de ganancias individuales: ${totalGananciaTrabajadores}`);
-  
-  // Crear el reporte completo
-  return {
-    ...reporte,
-    actividades,
-    trabajadores,
-    totales: {
-      horas: totalHorasCalculado,
-      costoMO: totalCostoMO,
-      costoExpediente: totalCostoExpediente,
-      ganancia: gananciaTotal
-    }
-  };
-};
-
-// Actualizar también la explicación de cálculos para reflejar la nueva lógica
-const ExplicacionCalculos = () => (
-  <div className="bg-white p-4 rounded-lg border border-blue-200 mb-4">
-    <div className="flex items-center mb-3">
-      <Info size={18} className="text-blue-600 mr-2" />
-      <h4 className="font-medium text-blue-800">Acerca de los cálculos de costos y ganancias</h4>
+  // Explicación de cálculos de costos y ganancias
+  const ExplicacionCalculos = () => (
+    <div className="bg-white p-4 rounded-lg border border-blue-200 mb-4">
+      <div className="flex items-center mb-3">
+        <Info size={18} className="text-blue-600 mr-2" />
+        <h4 className="font-medium text-blue-800">Acerca de los cálculos de costos y ganancias</h4>
+      </div>
+      
+      <div className="text-sm text-gray-700">
+        <p className="mb-2">Los cálculos se realizan de la siguiente manera:</p>
+        <ul className="list-disc pl-5 space-y-1">
+          <li><strong>Costo MO:</strong> Es el costo real de la mano de obra según categoría (OPERARIO: S/ 23.00/h, OFICIAL: S/ 18.09/h, PEÓN: S/ 16.38/h)</li>
+          <li><strong>Ganancia:</strong> Es el valor total valorizado distribuido proporcionalmente según las horas trabajadas</li>
+          <li><strong>Costo Expediente:</strong> Es la suma del Costo MO más la Ganancia para cada trabajador</li>
+        </ul>
+        <p className="mt-2">El Total Valorizado que se muestra en el reporte corresponde directamente a la Ganancia total del mismo.</p>
+      </div>
     </div>
-    
-    <div className="text-sm text-gray-700">
-      <p className="mb-2">Los cálculos se realizan de la siguiente manera:</p>
-      <ul className="list-disc pl-5 space-y-1">
-        <li><strong>Costo MO:</strong> Es el costo real de la mano de obra según categoría (OPERARIO: S/ 23.00/h, OFICIAL: S/ 18.09/h, PEÓN: S/ 16.38/h)</li>
-        <li><strong>Ganancia:</strong> Es el valor total valorizado distribuido proporcionalmente según las horas trabajadas</li>
-        <li><strong>Costo Expediente:</strong> Es la suma del Costo MO más la Ganancia para cada trabajador</li>
-      </ul>
-      <p className="mt-2">El Total Valorizado que se muestra en el reporte corresponde directamente a la Ganancia total del mismo.</p>
-    </div>
-  </div>
-);
- 
-
-
-
-  
+  );
   
   // Función mejorada para renderizar iconos de ordenamiento
   const renderOrdenIcon = (campo) => {
@@ -703,48 +709,6 @@ const ExplicacionCalculos = () => (
       case 'reportes':
         return (
           <div>
-            {/* Panel de depuración - Solo en modo desarrollo */}
-            {process.env.NODE_ENV === 'development' && (
-              <div className="bg-amber-50 p-3 mb-4 rounded-lg border border-amber-200 text-sm">
-                <h4 className="font-medium mb-1 flex items-center">
-                  <AlertCircle size={16} className="mr-1 text-amber-600" />
-                  Panel de Depuración
-                </h4>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-2">
-                  <div>
-                    <span className="text-amber-800">Modo:</span> 
-                    <span className="ml-1 font-medium">{useMockData ? 'Simulación' : 'Datos reales'}</span>
-                  </div>
-                  <div>
-                    <span className="text-amber-800">Firebase:</span> 
-                    <span className="ml-1 font-medium">{db ? 'Conectado' : 'Desconectado'}</span>
-                  </div>
-                  <div>
-                    <span className="text-amber-800">Reportes:</span> 
-                    <span className="ml-1 font-medium">{reportesOriginales.length}</span>
-                  </div>
-                  <div>
-                    <span className="text-amber-800">Filtrados:</span> 
-                    <span className="ml-1 font-medium">{reportesFiltrados.length}</span>
-                  </div>
-                </div>
-                <div className="flex space-x-2">
-                  <button 
-                    className="px-2 py-1 text-xs bg-amber-600 text-white rounded hover:bg-amber-700"
-                    onClick={() => recargarDatos()}
-                  >
-                    Recargar Datos
-                  </button>
-                  <button 
-                    className="px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700"
-                    onClick={() => console.log("Datos del primer reporte:", reportesOriginales[0])}
-                  >
-                    Ver Primer Reporte
-                  </button>
-                </div>
-              </div>
-            )}
-            
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-sm font-medium">Reportes Recientes</h3>
               
@@ -1349,21 +1313,17 @@ const ExplicacionCalculos = () => (
         );
         
       case 'exportar':
-        // Mantener código existente para la pestaña exportar
         return (
           <div>
             <h3 className="text-sm font-medium mb-3">Exportar Datos</h3>
-            {/* Contenido existente */}
             <p className="text-sm text-gray-600">Funcionalidad de exportación en desarrollo.</p>
           </div>
         );
         
       case 'programacion':
-        // Mantener código existente para la pestaña programación
         return (
           <div>
             <h3 className="text-sm font-medium mb-3">Programación de Reportes</h3>
-            {/* Contenido existente */}
             <p className="text-sm text-gray-600">Funcionalidad de programación en desarrollo.</p>
           </div>
         );
@@ -1431,3 +1391,4 @@ const ExplicacionCalculos = () => (
 };
 
 export default ModuloReportes;
+                                        
