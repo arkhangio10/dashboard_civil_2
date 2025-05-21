@@ -336,7 +336,7 @@ const ModuloReportes = () => {
       
       // Costo Expediente: Es igual al valor metrado (lo que se factura al cliente)
       // Para esta simulación, usamos un valor aproximado basado en las horas
-      const costoExpediente = totalHoras * 18.00; // Valor base por hora para el expediente
+      const costoExpediente = costoMO; // Valor base por hora para el expediente
       
       // Ganancia: Es la diferencia entre Costo Expediente y Costo MO
       // NOTA: Ahora la fórmula es invertida para reflejar correctamente la lógica de negocio
@@ -1161,7 +1161,7 @@ const ModuloReportes = () => {
                               <div className="col-span-2">
                                 <p className="text-sm text-gray-600">Ganancia Neta:</p>
                                 <p className={`font-medium ${(reporteSeleccionado.totales?.ganancia || 0) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                                  {formatoMoneda(reporteSeleccionado.totales?.ganancia || -82.88)}
+                                  {formatoMoneda(reporteSeleccionado.totales?.ganancia || 0)}
                                 </p>
                                 <p className="text-xs text-gray-500 mt-1">
                                   {(reporteSeleccionado.totales?.ganancia || 0) >= 0 
