@@ -141,6 +141,7 @@ const AnalisisCostos = () => {
                         <th className="p-2 text-left">Actividad</th>
                         <th className="p-2 text-right">Valor</th>
                         <th className="p-2 text-right">Costo MO</th>
+                        <th className="p-2 text-right">Costo Actividad</th>
                         <th className="p-2 text-right">Ganancia</th>
                         <th className="p-2 text-right">Margen</th>
                       </tr>
@@ -154,6 +155,7 @@ const AnalisisCostos = () => {
                             <td className="p-2">{act.nombre}</td>
                             <td className="p-2 text-right">{formatoMoneda(act.valor)}</td>
                             <td className="p-2 text-right">{formatoMoneda(act.costo)}</td>
+                            <td className="p-2 text-right">{formatoMoneda(act.costo || 0)}</td>
                             <td className="p-2 text-right font-medium text-green-600">{formatoMoneda(ganancia)}</td>
                             <td className="p-2 text-right font-medium text-blue-600">{margen.toFixed(1)}%</td>
                           </tr>

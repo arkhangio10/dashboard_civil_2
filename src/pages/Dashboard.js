@@ -8,7 +8,6 @@ import AnalisisCostos from '../components/dashboard/AnalisisCostos';
 import AnalisisProductividad from '../components/dashboard/AnalisisProductividad';
 import AnalisisTrabajadores from '../components/dashboard/AnalisisTrabajadores';
 import ModuloReportes from '../components/dashboard/ModuloReportes';
-import DataModeToggle from '../components/dashboard/DataModeToggle';
 import DebugFirebase from '../components/dashboard/DebugFirebase';
 import InitializeFirebase from '../components/dashboard/InitializeFirebase';
 import { DashboardProvider } from '../context/DashboardContext';
@@ -97,7 +96,7 @@ const Dashboard = () => {
           <main className="flex-1 overflow-y-auto p-4">
             <div className="grid grid-cols-1 gap-4 mb-4">
               <FiltroDashboard />
-              <DataModeToggle />
+              {/* El componente DataModeToggle ha sido eliminado */}
             </div>
             
             {renderizarModulo()}

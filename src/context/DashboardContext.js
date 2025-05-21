@@ -1,7 +1,6 @@
 // src/context/DashboardContext.js
 import React, { createContext, useState, useEffect, useContext } from 'react';
 import { obtenerSemanaActual, obtenerMesActual } from '../utils/dateUtils';
-import { mockData } from '../utils/mockData';
 import { useAuth } from './AuthContext';
 import { 
   fetchKPIs, 
@@ -40,7 +39,6 @@ export const DashboardProvider = ({ children }) => {
   const { db, selectedProject } = useAuth();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [useMockData, setUseMockData] = useState(false); // Para desarrollo y pruebas
   
   // Estado para filtros
   const [filtros, setFiltros] = useState({
@@ -55,40 +53,37 @@ export const DashboardProvider = ({ children }) => {
     ubicacion: 'TODAS'
   });
   
-  // Datos iniciales (usando los datos simulados como fallback)
+  // Datos iniciales (utilizando valores reales de Firebase)
   const [datos, setDatos] = useState({
-    kpis: mockData.kpis,
-    actividades: mockData.actividades,
-    trabajadores: mockData.trabajadores,
-    tendencias: mockData.tendencias,
-    distribucion: mockData.distribucion,
-    reportes: mockData.reportes
+    kpis: {
+      costoTotal: 0,
+      valorTotal: 0,
+      ganancia: 0,
+      totalHoras: 0,
+      productividadPromedio: 0,
+      totalActividades: 0,
+      totalReportes: 0,
+      totalTrabajadores: 0
+    },
+    actividades: [],
+    trabajadores: [],
+    tendencias: {
+      costos: [],
+      productividad: []
+    },
+    distribucion: {
+      categorias: []
+    },
+    reportes: []
   });
   
   // Cargar datos cuando cambian los filtros o el proyecto seleccionado
   useEffect(() => {
     cargarDatos();
-  }, [filtros, selectedProject, db, useMockData]);
+  }, [filtros, selectedProject, db]);
   
   // Función para cargar datos reales de Firebase
   const cargarDatos = async () => {
-    if (useMockData) {
-      // Si estamos usando datos de prueba, simular un retraso
-      setLoading(true);
-      setTimeout(() => {
-        setDatos({
-          kpis: mockData.kpis,
-          actividades: mockData.actividades,
-          trabajadores: mockData.trabajadores,
-          tendencias: mockData.tendencias,
-          distribucion: mockData.distribucion,
-          reportes: mockData.reportes
-        });
-        setLoading(false);
-      }, 500);
-      return;
-    }
-    
     try {
       setLoading(true);
       setError(null);
@@ -123,37 +118,37 @@ export const DashboardProvider = ({ children }) => {
         // KPIs generales
         fetchKPIs(db, queryFilters).catch(err => {
           console.error("Error al cargar KPIs:", err);
-          return mockData.kpis; // Fallback a datos de prueba
+          return datos.kpis; // Mantener datos anteriores en caso de error
         }),
         
         // Datos de trabajadores
         fetchWorkers(db, queryFilters).catch(err => {
           console.error("Error al cargar trabajadores:", err);
-          return mockData.trabajadores; // Fallback a datos de prueba
+          return datos.trabajadores; // Mantener datos anteriores en caso de error
         }),
         
         // Actividades
         fetchActivities(db, queryFilters).catch(err => {
           console.error("Error al cargar actividades:", err);
-          return mockData.actividades; // Fallback a datos de prueba
+          return datos.actividades; // Mantener datos anteriores en caso de error
         }),
         
         // Reportes
         fetchReports(db, queryFilters, 10).catch(err => {
           console.error("Error al cargar reportes:", err);
-          return mockData.reportes; // Fallback a datos de prueba
+          return datos.reportes; // Mantener datos anteriores en caso de error
         }),
         
         // Distribución por categorías
         fetchDistributionByCategory(db, queryFilters).catch(err => {
           console.error("Error al cargar distribución por categorías:", err);
-          return mockData.distribucion.categorias; // Fallback a datos de prueba
+          return datos.distribucion.categorias; // Mantener datos anteriores en caso de error
         }),
         
         // Tendencias
         fetchTrends(db, queryFilters).catch(err => {
           console.error("Error al cargar tendencias:", err);
-          return mockData.tendencias; // Fallback a datos de prueba
+          return datos.tendencias; // Mantener datos anteriores en caso de error
         })
       ]);
       
@@ -167,7 +162,6 @@ export const DashboardProvider = ({ children }) => {
         reportes: reportsData,
         tendencias: tendenciasData,
         distribucion: {
-          ...mockData.distribucion,
           categorias: distribucionData
         }
       });
@@ -175,16 +169,6 @@ export const DashboardProvider = ({ children }) => {
     } catch (err) {
       console.error("Error al cargar datos:", err);
       setError("Ocurrió un error al cargar los datos. Por favor, intenta de nuevo.");
-      
-      // Usar datos de prueba como fallback
-      setDatos({
-        kpis: mockData.kpis,
-        actividades: mockData.actividades,
-        trabajadores: mockData.trabajadores,
-        tendencias: mockData.tendencias,
-        distribucion: mockData.distribucion,
-        reportes: mockData.reportes
-      });
     } finally {
       setLoading(false);
     }
@@ -197,9 +181,7 @@ export const DashboardProvider = ({ children }) => {
     filtros,
     setFiltros,
     datos,
-    recargarDatos: cargarDatos,
-    useMockData,
-    setUseMockData
+    recargarDatos: cargarDatos
   };
   
   return (
