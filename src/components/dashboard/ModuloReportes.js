@@ -190,6 +190,360 @@ const ModuloReportes = () => {
     return tarifa * parseFloat(horas);
   };
   
+  // Función mejorada para cargar datos completos del reporte desde Firebase
+  const cargarDatosReporteFirebase = async (reporte) => {
+    const reporteId = reporte.id || reporte.reporteId;
+    
+    if (!reporteId) {
+      throw new Error("ID de reporte no válido");
+    }
+    
+    console.log(`Intentando cargar reporte de Firebase con ID: ${reporteId}`);
+    
+    // Primero intentar obtener el documento principal del reporte
+    const reporteRef = doc(db, 'Reportes', reporteId);
+    const reporteDoc = await getDoc(reporteRef);
+    
+    if (!reporteDoc.exists()) {
+      console.log(`No se encontró el reporte con ID ${reporteId} en la colección 'Reportes'`);
+      throw new Error("Reporte no encontrado");
+    }
+    
+    // Obtener datos del documento principal
+    const datosReporte = reporteDoc.data();
+    console.log("Datos del reporte obtenidos:", datosReporte);
+    
+    // Obtener subcolecciones (actividades y mano de obra)
+    const actividadesRef = collection(db, `Reportes/${reporteId}/actividades`);
+    const manoObraRef = collection(db, `Reportes/${reporteId}/mano_obra`);
+    
+    const [actividadesSnapshot, manoObraSnapshot] = await Promise.all([
+      getDocs(actividadesRef),
+      getDocs(manoObraRef)
+    ]);
+    
+    // Convertir a arrays con la estructura correcta
+    const actividades = actividadesSnapshot.docs.map(doc => {
+      const data = doc.data();
+      
+      // Calcular avance basado en metrado
+      const metradoP = parseFloat(data.metradoP || 0);
+      const metradoE = parseFloat(data.metradoE || 0);
+      const avance = metradoP > 0 
+        ? ((metradoE / metradoP) * 100).toFixed(1) + '%'
+        : '0.0%';
+      
+      // Asegurar estructura correcta con todos los campos requeridos
+      return {
+        id: doc.id,
+        nombre: data.proceso || data.nombre || `Actividad ${doc.id}`,
+        und: data.und || data.unidad || "UND", // Asegurar que tenemos la unidad
+        metradoP: parseFloat(data.metradoP || 0),
+        metradoE: parseFloat(data.metradoE || 0),
+        avance: data.avance || avance,
+        causas: data.causas || "",
+        precioUnitario: parseFloat(data.precioUnitario || 0),
+        costoManoObra: parseFloat(data.costoMO || 0),
+        costoExpediente: parseFloat(data.costoExpediente || 0),
+        ganancia: parseFloat(data.ganancia || 0)
+      };
+    });
+    
+    // Si no hay actividades, lanzar error para probar el siguiente método
+    if (actividades.length === 0) {
+      throw new Error("No se encontraron actividades para este reporte");
+    }
+    
+    // Calcular las tarifas por categoría
+    const tarifasPorCategoria = {
+      'OPERARIO': 23.00,
+      'OFICIAL': 18.09,
+      'PEON': 16.38,
+      'DEFAULT': 18.00 // Valor por defecto
+    };
+    
+    const trabajadores = manoObraSnapshot.docs.map(doc => {
+      const data = doc.data();
+      
+      // Calcular las horas por actividad (texto descriptivo)
+      let horasActividad = "";
+      if (Array.isArray(data.horas)) {
+        data.horas.forEach((h, idx) => {
+          if (h && parseFloat(h) > 0) {
+            const actividadNombre = idx < actividades.length ? actividades[idx].nombre : `Actividad ${idx+1}`;
+            horasActividad += `${actividadNombre}: ${h}h\n`;
+          }
+        });
+      }
+      
+      // Calcular horas totales
+      const totalHoras = Array.isArray(data.horas) 
+        ? data.horas.reduce((sum, h) => sum + parseFloat(h || 0), 0)
+        : parseFloat(data.totalHoras || 0);
+      
+      // Calcular costos basados en categoría
+      const categoria = data.categoria || "DEFAULT";
+      const tarifa = tarifasPorCategoria[categoria] || tarifasPorCategoria.DEFAULT;
+      const costoEst = tarifa * totalHoras;
+      const costoExpediente = data.costoExpediente || (costoEst * 0.33); // Estimación o valor real
+      const ganancia = data.ganancia || (costoEst - costoExpediente);
+      
+      return {
+        id: doc.id,
+        nombre: data.trabajador || data.nombre || "Sin nombre",
+        categoria: data.categoria || "SIN CATEGORÍA",
+        horasActividad: horasActividad || "No hay detalle de horas",
+        totalHoras: totalHoras,
+        costoEst: costoEst,
+        costoExpediente: costoExpediente,
+        ganancia: ganancia
+      };
+    });
+    
+    // Si no hay trabajadores, lanzar error para probar el siguiente método
+    if (trabajadores.length === 0) {
+      throw new Error("No se encontraron trabajadores para este reporte");
+    }
+    
+    // Calcular totales
+    const totalHoras = trabajadores.reduce((sum, t) => sum + (t.totalHoras || 0), 0);
+    const totalCostoMO = trabajadores.reduce((sum, t) => sum + (t.costoEst || 0), 0);
+    const totalCostoExpediente = trabajadores.reduce((sum, t) => sum + (t.costoExpediente || 0), 0);
+    const totalGanancia = trabajadores.reduce((sum, t) => sum + (t.ganancia || 0), 0);
+    
+    // Valores calculados para actividades
+    actividades.forEach(actividad => {
+      // Si no tiene valores calculados explícitos, estimarlos
+      if (!actividad.costoManoObra) {
+        // Distribuir el costo total proporcionalmente entre actividades
+        const proporcion = 1 / actividades.length; // Asumimos distribución equitativa
+        actividad.costoManoObra = totalCostoMO * proporcion;
+        actividad.costoExpediente = totalCostoExpediente * proporcion;
+        actividad.ganancia = totalGanancia * proporcion;
+      }
+    });
+    
+    // Crear el reporte completo combinando todos los datos
+    return {
+      ...reporte,
+      ...datosReporte,
+      actividades,
+      trabajadores,
+      totales: {
+        horas: totalHoras,
+        costoMO: totalCostoMO,
+        costoExpediente: totalCostoExpediente,
+        ganancia: totalGanancia,
+        valorTotal: datosReporte.totalValorizado || actividades.reduce((sum, act) => sum + (act.metradoE * act.precioUnitario), 0)
+      }
+    };
+  };
+  
+  // Función alternativa para cargar datos simplificados si falla el método principal
+  const cargarDatosReporteSimplificado = async (reporte) => {
+    const reporteId = reporte.id || reporte.reporteId;
+    
+    if (!reporteId) {
+      throw new Error("ID de reporte no válido");
+    }
+    
+    console.log(`Intentando cargar datos simplificados para reporte: ${reporteId}`);
+    
+    // Intentar obtener desde Reportes_Links, que podría tener más información
+    const reporteLinksRef = doc(db, 'Reportes_Links', reporteId);
+    const reporteLinksDoc = await getDoc(reporteLinksRef);
+    
+    let datosReporte = { ...reporte };
+    
+    if (reporteLinksDoc.exists()) {
+      datosReporte = { ...datosReporte, ...reporteLinksDoc.data() };
+      console.log("Datos encontrados en Reportes_Links:", datosReporte);
+    } else {
+      console.log(`No se encontró el reporte con ID ${reporteId} en Reportes_Links`);
+    }
+    
+    // Estimar actividades y trabajadores basados en la información disponible
+    const totalActividades = datosReporte.totalActividades || 2;
+    const totalTrabajadores = datosReporte.totalTrabajadores || 3;
+    const totalValorizado = datosReporte.totalValorizado || 0;
+    
+    // Generar actividades simuladas
+    const actividades = [];
+    const valorizadoPorActividad = totalValorizado / totalActividades;
+    
+    const unidadesPosibles = ["UND", "M2", "M3", "ML", "KG", "GLB"];
+    
+    for (let i = 0; i < totalActividades; i++) {
+      const metradoP = 100 + (i * 5);
+      const metradoE = Math.round(metradoP * 0.9); // 90% de avance
+      const unidad = unidadesPosibles[i % unidadesPosibles.length];
+      const precioUnitario = valorizadoPorActividad / metradoE;
+      
+      actividades.push({
+        id: `act-${i+1}`,
+        nombre: `Actividad ${i + 1}`,
+        und: unidad,
+        metradoP: metradoP,
+        metradoE: metradoE,
+        avance: "90%",
+        causas: "",
+        precioUnitario: precioUnitario,
+        costoManoObra: valorizadoPorActividad * 0.6, // 60% del valor
+        costoExpediente: valorizadoPorActividad * 0.2, // 20% del valor
+        ganancia: valorizadoPorActividad * 0.2 // 20% del valor
+      });
+    }
+    
+    // Generar trabajadores simulados
+    const trabajadores = [];
+    const costoPromedioTrabajador = totalValorizado * 0.6 / totalTrabajadores; // 60% del valor es costo de MO
+    
+    const categorias = ["OPERARIO", "OFICIAL", "PEON"];
+    const tarifasPorCategoria = {
+      'OPERARIO': 23.00,
+      'OFICIAL': 18.09,
+      'PEON': 16.38
+    };
+    
+    for (let i = 0; i < totalTrabajadores; i++) {
+      const categoria = categorias[i % categorias.length];
+      const tarifa = tarifasPorCategoria[categoria];
+      const horasTrabajador = Math.round(costoPromedioTrabajador / tarifa);
+      const costoEst = horasTrabajador * tarifa;
+      const costoExpediente = costoEst * 0.33;
+      const ganancia = costoEst - costoExpediente;
+      
+      trabajadores.push({
+        id: `trab-${i+1}`,
+        nombre: `Trabajador ${i + 1}`,
+        categoria: categoria,
+        horasActividad: `Actividad 1: ${Math.round(horasTrabajador/2)}h\nActividad 2: ${Math.round(horasTrabajador/2)}h`,
+        totalHoras: horasTrabajador,
+        costoEst: costoEst,
+        costoExpediente: costoExpediente,
+        ganancia: ganancia
+      });
+    }
+    
+    // Calcular totales
+    const totalHoras = trabajadores.reduce((sum, t) => sum + (t.totalHoras || 0), 0);
+    const totalCostoMO = trabajadores.reduce((sum, t) => sum + (t.costoEst || 0), 0);
+    const totalCostoExpediente = trabajadores.reduce((sum, t) => sum + (t.costoExpediente || 0), 0);
+    const totalGanancia = trabajadores.reduce((sum, t) => sum + (t.ganancia || 0), 0);
+    
+    // Crear el reporte con datos reales + estimaciones
+    return {
+      ...datosReporte,
+      actividades,
+      trabajadores,
+      totales: {
+        horas: totalHoras,
+        costoMO: totalCostoMO,
+        costoExpediente: totalCostoExpediente,
+        ganancia: totalGanancia,
+        valorTotal: totalValorizado
+      }
+    };
+  };
+  
+  // Función para generar datos de reporte simulados con valores realistas
+  const generarDatosReporteSimulado = (reporte) => {
+    console.log("Generando datos simulados para reporte:", reporte.id || reporte.reporteId);
+    
+    // Actividades simuladas con unidades correctas
+    const actividades = [
+      {
+        nombre: "TABLERO DE DISTRIBUCION ESTABILIZADO EMPOTRADO MONOFASICO DE 14 POLOS",
+        und: "UND",
+        metradoP: 70.00,
+        metradoE: 69.00,
+        avance: "98.6%",
+        causas: "causas 2 prueba",
+        precioUnitario: 450.00,
+        costoManoObra: 368.00,
+        costoExpediente: 120.00,
+        ganancia: 248.00
+      },
+      {
+        nombre: "TRANSPORTE VERTICAL",
+        und: "M3",
+        metradoP: 50.00,
+        metradoE: 50.00,
+        avance: "100.0%",
+        causas: "causas 1",
+        precioUnitario: 380.00,
+        costoManoObra: 289.44,
+        costoExpediente: 95.00,
+        ganancia: 194.44
+      },
+      {
+        nombre: "SUMINISTRO DE MESA DE TRABAJO GRUPAL REGULABLE",
+        und: "UND",
+        metradoP: 35.00,
+        metradoE: 28.00,
+        avance: "80.0%",
+        causas: "",
+        precioUnitario: 520.00,
+        costoManoObra: 289.44,
+        costoExpediente: 95.00,
+        ganancia: 194.44
+      }
+    ];
+    
+    // Trabajadores simulados
+    const trabajadores = [
+      {
+        nombre: "RAMOS CHOQUECOTA FRANCISCO GERONIMO",
+        categoria: "OPERARIO",
+        horasActividad: "TABLERO DE DISTRIBUCION ESTABILIZADO EMPOTRADO MONOFASICO DE 14 POLOS: 8.0h\nTRANSPORTE VERTICAL: 8.0h",
+        totalHoras: 16.0,
+        costoEst: 368.00,
+        costoExpediente: 120.00,
+        ganancia: 248.00
+      },
+      {
+        nombre: "CRUZ SUBELETE PURIFICACION",
+        categoria: "OFICIAL",
+        horasActividad: "TABLERO DE DISTRIBUCION ESTABILIZADO EMPOTRADO MONOFASICO DE 14 POLOS: 8.0h\nTRANSPORTE VERTICAL: 8.0h",
+        totalHoras: 16.0,
+        costoEst: 289.44,
+        costoExpediente: 95.00,
+        ganancia: 194.44
+      }
+    ];
+    
+    // Calcular totales
+    const totalHoras = trabajadores.reduce((sum, t) => sum + t.totalHoras, 0);
+    const totalCostoMO = trabajadores.reduce((sum, t) => sum + t.costoEst, 0);
+    const totalCostoExpediente = trabajadores.reduce((sum, t) => sum + t.costoExpediente, 0);
+    const totalGanancia = trabajadores.reduce((sum, t) => sum + t.ganancia, 0);
+    const valorTotal = actividades.reduce((sum, a) => sum + (a.metradoE * a.precioUnitario), 0);
+    
+    // Crear el reporte completo
+    return {
+      ...reporte,
+      actividades,
+      trabajadores,
+      fecha: reporte.fecha || '2025-05-16',
+      creadoPor: reporte.creadoPor || reporte.elaboradoPor || 'TEST_USER',
+      subcontratistaBLoque: reporte.subcontratistaBLoque || reporte.subcontratistaBloque || 'PERU',
+      totales: {
+        horas: totalHoras,
+        costoMO: totalCostoMO,
+        costoExpediente: totalCostoExpediente,
+        ganancia: totalGanancia,
+        valorTotal: valorTotal
+      }
+    };
+  };
+  
+  // Función auxiliar para calcular porcentaje de avance
+  const calculateAvance = (metradoP, metradoE) => {
+    if (!metradoP || metradoP <= 0) return "0%";
+    const porcentaje = (parseFloat(metradoE) / parseFloat(metradoP)) * 100;
+    return `${porcentaje.toFixed(1)}%`;
+  };
+  
   // Función mejorada para obtener detalles completos de un reporte específico
   const verReporte = async (reporte) => {
     try {
@@ -252,284 +606,6 @@ const ModuloReportes = () => {
     } finally {
       setCargandoReporte(false);
     }
-  };
-  
-  // Función para cargar datos completos del reporte desde Firebase
-  const cargarDatosReporteFirebase = async (reporte) => {
-    const reporteId = reporte.id || reporte.reporteId;
-    
-    if (!reporteId) {
-      throw new Error("ID de reporte no válido");
-    }
-    
-    console.log(`Intentando cargar reporte de Firebase con ID: ${reporteId}`);
-    
-    // Primero intentar obtener el documento principal del reporte
-    const reporteRef = doc(db, 'Reportes', reporteId);
-    const reporteDoc = await getDoc(reporteRef);
-    
-    if (!reporteDoc.exists()) {
-      console.log(`No se encontró el reporte con ID ${reporteId} en la colección 'Reportes'`);
-      throw new Error("Reporte no encontrado");
-    }
-    
-    // Obtener datos del documento principal
-    const datosReporte = reporteDoc.data();
-    console.log("Datos del reporte obtenidos:", datosReporte);
-    
-    // Obtener subcolecciones (actividades y mano de obra)
-    const actividadesRef = collection(db, `Reportes/${reporteId}/actividades`);
-    const manoObraRef = collection(db, `Reportes/${reporteId}/mano_obra`);
-    
-    const [actividadesSnapshot, manoObraSnapshot] = await Promise.all([
-      getDocs(actividadesRef),
-      getDocs(manoObraRef)
-    ]);
-    
-    // Convertir a arrays
-    const actividades = actividadesSnapshot.docs.map(doc => {
-      const data = doc.data();
-      // Asegurar estructura correcta
-      return {
-        id: doc.id,
-        nombre: data.proceso || data.nombre || `Actividad ${doc.id}`,
-        und: data.und || data.unidad || "UND",
-        metradoP: parseFloat(data.metradoP || 0),
-        metradoE: parseFloat(data.metradoE || 0),
-        avance: data.avance || calculateAvance(data.metradoP, data.metradoE),
-        causas: data.causas || ""
-      };
-    });
-    
-    // Si no hay actividades, lanzar error para probar el siguiente método
-    if (actividades.length === 0) {
-      throw new Error("No se encontraron actividades para este reporte");
-    }
-    
-    const trabajadores = manoObraSnapshot.docs.map(doc => {
-      const data = doc.data();
-      
-      // Calcular las horas por actividad (texto descriptivo)
-      let horasActividad = "";
-      if (Array.isArray(data.horas)) {
-        data.horas.forEach((h, idx) => {
-          if (h && parseFloat(h) > 0) {
-            const actividadNombre = idx < actividades.length ? actividades[idx].nombre : `Actividad ${idx+1}`;
-            horasActividad += `${actividadNombre}: ${h}h\n`;
-          }
-        });
-      }
-      
-      // Calcular horas totales
-      const totalHoras = Array.isArray(data.horas) 
-        ? data.horas.reduce((sum, h) => sum + parseFloat(h || 0), 0)
-        : parseFloat(data.totalHoras || 0);
-      
-      // Calcular costos basados en categoría
-      const categoria = data.categoria || "DEFAULT";
-      const costoEst = calcularCostoPorCategoria(categoria, totalHoras);
-      const costoExpediente = costoEst * 0.33; // Estimación
-      const ganancia = costoEst - costoExpediente;
-      
-      return {
-        nombre: data.trabajador || data.nombre || "Sin nombre",
-        categoria: data.categoria || "SIN CATEGORÍA",
-        horasActividad: horasActividad || "No hay detalle de horas",
-        totalHoras: totalHoras,
-        costoEst: costoEst,
-        costoExpediente: costoExpediente,
-        ganancia: ganancia
-      };
-    });
-    
-    // Si no hay trabajadores, lanzar error para probar el siguiente método
-    if (trabajadores.length === 0) {
-      throw new Error("No se encontraron trabajadores para este reporte");
-    }
-    
-    // Calcular totales
-    const totalHoras = trabajadores.reduce((sum, t) => sum + (t.totalHoras || 0), 0);
-    const totalCostoMO = trabajadores.reduce((sum, t) => sum + (t.costoEst || 0), 0);
-    const totalCostoExpediente = trabajadores.reduce((sum, t) => sum + (t.costoExpediente || 0), 0);
-    const totalGanancia = trabajadores.reduce((sum, t) => sum + (t.ganancia || 0), 0);
-    
-    // Crear el reporte completo
-    return {
-      ...reporte,
-      ...datosReporte,
-      actividades,
-      trabajadores,
-      totales: {
-        horas: totalHoras,
-        costoMO: totalCostoMO,
-        costoExpediente: totalCostoExpediente,
-        ganancia: totalGanancia
-      }
-    };
-  };
-  
-  // Función alternativa para cargar datos simplificados si falla el método principal
-  const cargarDatosReporteSimplificado = async (reporte) => {
-    const reporteId = reporte.id || reporte.reporteId;
-    
-    if (!reporteId) {
-      throw new Error("ID de reporte no válido");
-    }
-    
-    console.log(`Intentando cargar datos simplificados para reporte: ${reporteId}`);
-    
-    // Intentar obtener desde Reportes_Links, que podría tener más información
-    const reporteLinksRef = doc(db, 'Reportes_Links', reporteId);
-    const reporteLinksDoc = await getDoc(reporteLinksRef);
-    
-    let datosReporte = { ...reporte };
-    
-    if (reporteLinksDoc.exists()) {
-      datosReporte = { ...datosReporte, ...reporteLinksDoc.data() };
-      console.log("Datos encontrados en Reportes_Links:", datosReporte);
-    } else {
-      console.log(`No se encontró el reporte con ID ${reporteId} en Reportes_Links`);
-    }
-    
-    // Estimar actividades y trabajadores basados en la información disponible
-    const totalActividades = datosReporte.totalActividades || 2;
-    const totalTrabajadores = datosReporte.totalTrabajadores || 3;
-    const totalValorizado = datosReporte.totalValorizado || 0;
-    
-    // Generar actividades simuladas
-    const actividades = [];
-    for (let i = 0; i < totalActividades; i++) {
-      actividades.push({
-        nombre: `Actividad ${i + 1}`,
-        und: "UND",
-        metradoP: 100,
-        metradoE: 90,
-        avance: "90%",
-        causas: ""
-      });
-    }
-    
-    // Generar trabajadores simulados
-    const trabajadores = [];
-    const costoPromedioTrabajador = totalValorizado * 0.7 / totalTrabajadores; // Estimación: 70% del valor es costo
-    
-    const categorias = ["OPERARIO", "OFICIAL", "PEON"];
-    
-    for (let i = 0; i < totalTrabajadores; i++) {
-      const categoria = categorias[i % categorias.length];
-      const horasTrabajador = costoPromedioTrabajador / calcularCostoPorCategoria(categoria, 1);
-      
-      trabajadores.push({
-        nombre: `Trabajador ${i + 1}`,
-        categoria: categoria,
-        horasActividad: "Actividades varias",
-        totalHoras: horasTrabajador,
-        costoEst: calcularCostoPorCategoria(categoria, horasTrabajador),
-        costoExpediente: calcularCostoPorCategoria(categoria, horasTrabajador) * 0.33,
-        ganancia: calcularCostoPorCategoria(categoria, horasTrabajador) * 0.67
-      });
-    }
-    
-    // Calcular totales
-    const totalHoras = trabajadores.reduce((sum, t) => sum + (t.totalHoras || 0), 0);
-    const totalCostoMO = trabajadores.reduce((sum, t) => sum + (t.costoEst || 0), 0);
-    const totalCostoExpediente = trabajadores.reduce((sum, t) => sum + (t.costoExpediente || 0), 0);
-    const totalGanancia = trabajadores.reduce((sum, t) => sum + (t.ganancia || 0), 0);
-    
-    // Crear el reporte con datos reales + estimaciones
-    return {
-      ...datosReporte,
-      actividades,
-      trabajadores,
-      totales: {
-        horas: totalHoras,
-        costoMO: totalCostoMO,
-        costoExpediente: totalCostoExpediente,
-        ganancia: totalGanancia
-      }
-    };
-  };
-  
-  // Función para generar datos de reporte simulados
-  const generarDatosReporteSimulado = (reporte) => {
-    console.log("Generando datos simulados para reporte:", reporte.id || reporte.reporteId);
-    
-    // Actividades simuladas
-    const actividades = [
-      {
-        nombre: "SUMINISTRO DE MESA DE TRABAJO GRUPAL REGULABLE 1",
-        und: "UND",
-        metradoP: 70.00,
-        metradoE: 69.00,
-        avance: "98.6%",
-        causas: "causas 2 prueba"
-      },
-      {
-        nombre: "TRANSPORTE VERTICAL",
-        und: "UND",
-        metradoP: 50.00,
-        metradoE: 50.00,
-        avance: "100.0%",
-        causas: "causas 1"
-      }
-    ];
-    
-    // Trabajadores simulados
-    const trabajadores = [
-      {
-        nombre: "LUPINTA AMANQUI FERMIN BENEDICTO",
-        categoria: "OPERARIO",
-        horasActividad: "SUMINISTRO DE MESA DE TRABAJO GRUPAL REGULABLE 1: 8.0h\nTRANSPORTE VERTICAL: 8.0h",
-        totalHoras: 16.0,
-        costoEst: 368.00,
-        costoExpediente: 120.00,
-        ganancia: 248.00
-      },
-      {
-        nombre: "CRUZ SUBELETE PURIFICACION",
-        categoria: "OFICIAL",
-        horasActividad: "SUMINISTRO DE MESA DE TRABAJO GRUPAL REGULABLE 1: 8.0h\nTRANSPORTE VERTICAL: 8.0h",
-        totalHoras: 16.0,
-        costoEst: 289.44,
-        costoExpediente: 95.00,
-        ganancia: 194.44
-      },
-      {
-        nombre: "CRUZ SUBELETE PURIFICACION",
-        categoria: "OFICIAL",
-        horasActividad: "SUMINISTRO DE MESA DE TRABAJO GRUPAL REGULABLE 1: 8.0h\nTRANSPORTE VERTICAL: 8.0h",
-        totalHoras: 16.0,
-        costoEst: 289.44,
-        costoExpediente: 95.00,
-        ganancia: 194.44
-      }
-    ];
-    
-    // Calcular totales
-    const totalHoras = trabajadores.reduce((sum, t) => sum + t.totalHoras, 0);
-    const totalCostoMO = trabajadores.reduce((sum, t) => sum + t.costoEst, 0);
-    const totalCostoExpediente = trabajadores.reduce((sum, t) => sum + t.costoExpediente, 0);
-    const totalGanancia = trabajadores.reduce((sum, t) => sum + t.ganancia, 0);
-    
-    // Crear el reporte completo
-    return {
-      ...reporte,
-      actividades,
-      trabajadores,
-      totales: {
-        horas: totalHoras,
-        costoMO: totalCostoMO,
-        costoExpediente: totalCostoExpediente,
-        ganancia: totalGanancia
-      }
-    };
-  };
-  
-  // Función auxiliar para calcular porcentaje de avance
-  const calculateAvance = (metradoP, metradoE) => {
-    if (!metradoP || metradoP <= 0) return "0%";
-    const porcentaje = (parseFloat(metradoE) / parseFloat(metradoP)) * 100;
-    return `${porcentaje.toFixed(1)}%`;
   };
   
   // Función para generar enlace de compartir
@@ -636,6 +712,140 @@ const ModuloReportes = () => {
       setOrdenCampo(campo);
       setOrdenDireccion('desc');
     }
+  };
+
+  // Función para renderizar la tabla de actividades en el modal de detalles
+  const renderizarTablaActividades = () => {
+    if (!reporteSeleccionado || !reporteSeleccionado.actividades || reporteSeleccionado.actividades.length === 0) {
+      return (
+        <div className="bg-yellow-50 p-4 rounded-lg border border-yellow-200 text-center">
+          <p className="text-yellow-700">No se encontraron actividades para este reporte.</p>
+        </div>
+      );
+    }
+    
+    return (
+      <div className="overflow-x-auto">
+        <table className="min-w-full divide-y divide-gray-200 border border-gray-200">
+          <thead className="bg-gray-50">
+            <tr>
+              <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actividad</th>
+              <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">UND</th>
+              <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Metrado P.</th>
+              <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Metrado E.</th>
+              <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Avance</th>
+              <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">P.U.</th>
+              <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Costo MO</th>
+              <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Costo Exp.</th>
+              <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ganancia</th>
+              <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Causas</th>
+            </tr>
+          </thead>
+          <tbody className="bg-white divide-y divide-gray-200">
+            {reporteSeleccionado.actividades.map((actividad, idx) => (
+              <tr key={idx} className={idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                <td className="px-3 py-3 text-sm font-medium text-gray-900">{actividad.nombre}</td>
+                <td className="px-3 py-3 text-sm text-gray-900">{actividad.und}</td>
+                <td className="px-3 py-3 text-sm text-gray-900">{typeof actividad.metradoP === 'number' ? actividad.metradoP.toFixed(2) : actividad.metradoP}</td>
+                <td className="px-3 py-3 text-sm text-gray-900">{typeof actividad.metradoE === 'number' ? actividad.metradoE.toFixed(2) : actividad.metradoE}</td>
+                <td className="px-3 py-3 text-sm text-green-600 font-medium">{actividad.avance}</td>
+                <td className="px-3 py-3 text-sm text-gray-900">{formatoMoneda(actividad.precioUnitario || 0)}</td>
+                <td className="px-3 py-3 text-sm text-red-600">{formatoMoneda(actividad.costoManoObra || 0)}</td>
+                <td className="px-3 py-3 text-sm text-blue-600">{formatoMoneda(actividad.costoExpediente || 0)}</td>
+                <td className="px-3 py-3 text-sm text-green-600">{formatoMoneda(actividad.ganancia || 0)}</td>
+                <td className="px-3 py-3 text-sm text-gray-900">{actividad.causas}</td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot className="bg-gray-100">
+            <tr>
+              <td colSpan="4" className="px-3 py-3 text-sm font-medium text-gray-900 text-right">Total:</td>
+              <td className="px-3 py-3"></td>
+              <td className="px-3 py-3 text-sm font-medium text-gray-900">
+                {formatoMoneda(reporteSeleccionado.totales?.valorTotal || 0)}
+              </td>
+              <td className="px-3 py-3 text-sm font-medium text-red-600">
+                {formatoMoneda(reporteSeleccionado.totales?.costoMO || 0)}
+              </td>
+              <td className="px-3 py-3 text-sm font-medium text-blue-600">
+                {formatoMoneda(reporteSeleccionado.totales?.costoExpediente || 0)}
+              </td>
+              <td className="px-3 py-3 text-sm font-medium text-green-600">
+                {formatoMoneda(reporteSeleccionado.totales?.ganancia || 0)}
+              </td>
+              <td></td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    );
+  };
+
+  // Función para renderizar la tabla de trabajadores en el modal de detalles
+  const renderizarTablaTrabajadores = () => {
+    if (!reporteSeleccionado || !reporteSeleccionado.trabajadores || reporteSeleccionado.trabajadores.length === 0) {
+      return (
+        <div className="bg-yellow-50 p-4 rounded-lg border border-yellow-200 text-center">
+          <p className="text-yellow-700">No se encontraron trabajadores para este reporte.</p>
+        </div>
+      );
+    }
+    
+    return (
+      <div className="overflow-x-auto">
+        <table className="min-w-full divide-y divide-gray-200 border border-gray-200">
+          <thead className="bg-gray-50">
+            <tr>
+              <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Trabajador</th>
+              <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Categoría</th>
+              <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Horas por Actividad</th>
+              <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total Horas</th>
+              <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Costo MO</th>
+              <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Costo Expediente</th>
+              <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ganancia Neta</th>
+            </tr>
+          </thead>
+          <tbody className="bg-white divide-y divide-gray-200">
+            {reporteSeleccionado.trabajadores.map((trabajador, idx) => (
+              <tr key={idx} className={idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                <td className="px-3 py-3 text-sm text-gray-900">{trabajador.nombre}</td>
+                <td className="px-3 py-3 text-sm text-gray-900">
+                  <span className={`px-2 py-1 rounded-full text-xs ${
+                    trabajador.categoria === 'OPERARIO' ? 'bg-green-100 text-green-800' :
+                    trabajador.categoria === 'OFICIAL' ? 'bg-blue-100 text-blue-800' :
+                    'bg-gray-100 text-gray-800'
+                  }`}>
+                    {trabajador.categoria}
+                  </span>
+                </td>
+                <td className="px-3 py-3 text-sm text-gray-900 whitespace-pre-line">{trabajador.horasActividad}</td>
+                <td className="px-3 py-3 text-sm text-gray-900">{trabajador.totalHoras}</td>
+                <td className="px-3 py-3 text-sm text-red-600">{formatoMoneda(trabajador.costoEst)}</td>
+                <td className="px-3 py-3 text-sm text-blue-600">{formatoMoneda(trabajador.costoExpediente)}</td>
+                <td className="px-3 py-3 text-sm text-green-600">{formatoMoneda(trabajador.ganancia)}</td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot className="bg-gray-100">
+            <tr>
+              <td colSpan="3" className="px-3 py-3 text-sm font-medium text-gray-900 text-right">Total:</td>
+              <td className="px-3 py-3 text-sm font-medium text-gray-900">
+                {reporteSeleccionado.totales.horas}
+              </td>
+              <td className="px-3 py-3 text-sm font-medium text-red-600">
+                {formatoMoneda(reporteSeleccionado.totales.costoMO)}
+              </td>
+              <td className="px-3 py-3 text-sm font-medium text-blue-600">
+                {formatoMoneda(reporteSeleccionado.totales.costoExpediente)}
+              </td>
+              <td className="px-3 py-3 text-sm font-medium text-green-600">
+                {formatoMoneda(reporteSeleccionado.totales.ganancia)}
+              </td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    );
   };
   
   // Renderizar pestaña según selección
@@ -1099,105 +1309,16 @@ const ModuloReportes = () => {
                         </div>
                       </div>
                       
-                      {/* Actividades - con manejo para cuando no hay actividades */}
+                      {/* Actividades */}
                       <div className="mb-8">
                         <h3 className="text-lg font-medium mb-3">Actividades</h3>
-                        {reporteSeleccionado.actividades?.length > 0 ? (
-                          <div className="overflow-x-auto">
-                            <table className="min-w-full divide-y divide-gray-200 border border-gray-200">
-                              <thead className="bg-gray-50">
-                                <tr>
-                                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actividad</th>
-                                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">UND</th>
-                                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Metrado P.</th>
-                                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Metrado E.</th>
-                                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Avance</th>
-                                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Causas</th>
-                                </tr>
-                              </thead>
-                              <tbody className="bg-white divide-y divide-gray-200">
-                                {reporteSeleccionado.actividades.map((actividad, idx) => (
-                                  <tr key={idx} className={idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
-                                    <td className="px-3 py-3 text-sm font-medium text-gray-900">{actividad.nombre}</td>
-                                    <td className="px-3 py-3 text-sm text-gray-900">{actividad.und}</td>
-                                    <td className="px-3 py-3 text-sm text-gray-900">{typeof actividad.metradoP === 'number' ? actividad.metradoP.toFixed(2) : actividad.metradoP}</td>
-                                    <td className="px-3 py-3 text-sm text-gray-900">{typeof actividad.metradoE === 'number' ? actividad.metradoE.toFixed(2) : actividad.metradoE}</td>
-                                    <td className="px-3 py-3 text-sm text-green-600 font-medium">{actividad.avance}</td>
-                                    <td className="px-3 py-3 text-sm text-gray-900">{actividad.causas}</td>
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
-                          </div>
-                        ) : (
-                          <div className="bg-yellow-50 p-4 rounded-lg border border-yellow-200 text-center">
-                            <p className="text-yellow-700">No se encontraron actividades para este reporte.</p>
-                          </div>
-                        )}
+                        {renderizarTablaActividades()}
                       </div>
                       
-                      {/* Mano de Obra - con manejo para cuando no hay trabajadores */}
+                      {/* Mano de Obra */}
                       <div>
                         <h3 className="text-lg font-medium mb-3">Mano de Obra</h3>
-                        {reporteSeleccionado.trabajadores?.length > 0 ? (
-                          <div className="overflow-x-auto">
-                            <table className="min-w-full divide-y divide-gray-200 border border-gray-200">
-                              <thead className="bg-gray-50">
-                                <tr>
-                                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Trabajador</th>
-                                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Categoría</th>
-                                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Horas por Actividad</th>
-                                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total Horas</th>
-                                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Costo MO</th>
-                                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Costo Expediente</th>
-                                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ganancia Neta</th>
-                                </tr>
-                              </thead>
-                              <tbody className="bg-white divide-y divide-gray-200">
-                                {reporteSeleccionado.trabajadores.map((trabajador, idx) => (
-                                  <tr key={idx} className={idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
-                                    <td className="px-3 py-3 text-sm text-gray-900">{trabajador.nombre}</td>
-                                    <td className="px-3 py-3 text-sm text-gray-900">
-                                      <span className={`px-2 py-1 rounded-full text-xs ${
-                                        trabajador.categoria === 'OPERARIO' ? 'bg-green-100 text-green-800' :
-                                        trabajador.categoria === 'OFICIAL' ? 'bg-blue-100 text-blue-800' :
-                                        'bg-gray-100 text-gray-800'
-                                      }`}>
-                                        {trabajador.categoria}
-                                      </span>
-                                    </td>
-                                    <td className="px-3 py-3 text-sm text-gray-900 whitespace-pre-line">{trabajador.horasActividad}</td>
-                                    <td className="px-3 py-3 text-sm text-gray-900">{trabajador.totalHoras}</td>
-                                    <td className="px-3 py-3 text-sm text-red-600">{formatoMoneda(trabajador.costoEst)}</td>
-                                    <td className="px-3 py-3 text-sm text-blue-600">{formatoMoneda(trabajador.costoExpediente)}</td>
-                                    <td className="px-3 py-3 text-sm text-green-600">{formatoMoneda(trabajador.ganancia)}</td>
-                                  </tr>
-                                ))}
-                              </tbody>
-                              <tfoot className="bg-gray-100">
-                                <tr>
-                                  <td className="px-3 py-3 text-sm font-medium text-gray-900 text-right">Total:</td>
-                                  <td className="px-3 py-3 text-sm font-medium text-gray-900">
-                                    {reporteSeleccionado.totales.horas}
-                                  </td>
-                                  <td className="px-3 py-3 text-sm font-medium text-red-600">
-                                    {formatoMoneda(reporteSeleccionado.totales.costoMO)}
-                                  </td>
-                                  <td className="px-3 py-3 text-sm font-medium text-blue-600">
-                                    {formatoMoneda(reporteSeleccionado.totales.costoExpediente)}
-                                  </td>
-                                  <td className="px-3 py-3 text-sm font-medium text-green-600">
-                                    {formatoMoneda(reporteSeleccionado.totales.ganancia)}
-                                  </td>
-                                </tr>
-                              </tfoot>
-                            </table>
-                          </div>
-                        ) : (
-                          <div className="bg-yellow-50 p-4 rounded-lg border border-yellow-200 text-center">
-                            <p className="text-yellow-700">No se encontraron trabajadores para este reporte.</p>
-                          </div>
-                        )}
+                        {renderizarTablaTrabajadores()}
                       </div>
                       
                       {/* Botones */}
