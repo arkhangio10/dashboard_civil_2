@@ -1,6 +1,13 @@
-// src/context/DashboardContext.js
+// Modificación del src/context/DashboardContext.js
+
 import React, { createContext, useState, useEffect, useContext } from 'react';
-import { obtenerSemanaActual, obtenerMesActual } from '../utils/dateUtils';
+import { 
+  obtenerSemanaActual, 
+  obtenerMesActual, 
+  generarRangoFechas, 
+  obtenerFechaRetrocedida, 
+  obtenerFechaActual 
+} from '../utils/dateUtils';
 import { useAuth } from './AuthContext';
 import { 
   fetchKPIs, 
@@ -10,26 +17,6 @@ import {
   fetchDistributionByCategory,
   fetchTrends
 } from '../firebase/db';
-
-// Función auxiliar para normalizar fechas para Firebase
-function normalizarFechaParaFirebase(fecha) {
-  if (!fecha) return '';
-  // Si ya está en formato YYYY-MM-DD, devolverlo tal cual
-  if (/^\d{4}-\d{2}-\d{2}$/.test(fecha)) return fecha;
-  
-  // Si está en formato DD/MM/YYYY, convertirlo
-  if (/^\d{2}\/\d{2}\/\d{4}$/.test(fecha)) {
-    return fecha.split('/').reverse().join('-');
-  }
-  
-  // Ante cualquier otro formato, intentar convertir
-  try {
-    const date = new Date(fecha);
-    return date.toISOString().split('T')[0];
-  } catch {
-    return fecha;
-  }
-}
 
 // Crear el contexto
 export const DashboardContext = createContext();
@@ -46,8 +33,8 @@ export const DashboardProvider = ({ children }) => {
     semana: obtenerSemanaActual(),
     mes: obtenerMesActual(),
     rango: { 
-      inicio: new Date(new Date().setDate(new Date().getDate() - 30)).toISOString().split('T')[0],
-      fin: new Date().toISOString().split('T')[0]
+      inicio: obtenerFechaRetrocedida(30),
+      fin: obtenerFechaActual()
     },
     categoria: 'TODAS',
     ubicacion: 'TODAS'
@@ -96,16 +83,12 @@ export const DashboardProvider = ({ children }) => {
       console.log("Cargando datos desde Firebase para proyecto:", selectedProject);
       console.log("Filtros aplicados:", filtros);
       
-      // Preparar filtros para las consultas
+      // Preparar filtros para las consultas usando la función mejorada
+      // Genera un rango de fechas consistente para todas las consultas
+      const rangoFechas = generarRangoFechas(filtros.tipoFiltro, filtros);
+      
       const queryFilters = {
-        dateRange: filtros.tipoFiltro === 'rango' 
-          ? { 
-              inicio: normalizarFechaParaFirebase(filtros.rango.inicio),
-              fin: normalizarFechaParaFirebase(filtros.rango.fin)
-            } 
-          : filtros.tipoFiltro === 'dia' 
-            ? { fin: normalizarFechaParaFirebase(filtros.rango.fin) } 
-            : null,
+        dateRange: rangoFechas,
         tipoFiltro: filtros.tipoFiltro,
         category: filtros.categoria !== 'TODAS' ? filtros.categoria : null,
         location: filtros.ubicacion !== 'TODAS' ? filtros.ubicacion : null

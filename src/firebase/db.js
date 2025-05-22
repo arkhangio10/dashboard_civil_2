@@ -168,6 +168,7 @@ export const fetchActivities = async (db, filters = {}) => {
   }
 };
 
+
 // Función para obtener indicadores KPI desde Dashboard_Resumenes
 export const fetchKPIs = async (db, filters = {}) => {
   try {
@@ -176,22 +177,30 @@ export const fetchKPIs = async (db, filters = {}) => {
     
     // Determinar qué tipo de resumen usar basado en los filtros
     let periodo = 'diario';
-    let fecha = new Date().toISOString().split('T')[0];
+    let fecha;
     
-    if (tipoFiltro === 'semana') {
-      periodo = 'semanal';
-      // Calcular inicio de semana actual
-      const today = new Date();
-      const day = today.getDay();
-      const diff = today.getDate() - day + (day === 0 ? -6 : 1); // Ajustar si es domingo
-      fecha = new Date(today.setDate(diff)).toISOString().split('T')[0];
-    } else if (tipoFiltro === 'mes') {
-      periodo = 'mensual';
-      // Primer día del mes actual
-      fecha = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0];
-    } else if (dateRange && dateRange.fin) {
-      // Usar fecha específica para período diario
-      fecha = asegurarFormatoFecha(dateRange.fin);
+    switch (tipoFiltro) {
+      case 'semana':
+        periodo = 'semanal';
+        fecha = dateRange?.inicio || null;
+        break;
+      case 'mes':
+        periodo = 'mensual';
+        fecha = dateRange?.inicio || null;
+        break;
+      case 'dia':
+      case 'rango':
+      default:
+        periodo = 'diario';
+        // Para día específico o rango, usar la fecha fin como punto de referencia
+        fecha = dateRange?.fin || null;
+        break;
+    }
+    
+    if (!fecha) {
+      console.warn('No se proporcionó fecha válida para la consulta de KPIs');
+      // Usar fecha actual como fallback
+      fecha = new Date().toISOString().split('T')[0];
     }
     
     // ID del documento basado en el período y fecha
@@ -220,7 +229,7 @@ export const fetchKPIs = async (db, filters = {}) => {
       };
     }
     
-    console.log('No se encontró resumen, obteniendo el más reciente');
+    console.log('No se encontró resumen con ID exacto, buscando el más reciente del mismo periodo');
     
     // Si no encontramos el documento específico, buscar el más reciente del mismo período
     const resumeRef = collection(db, 'Dashboard_Resumenes');
@@ -294,17 +303,16 @@ export const fetchKPIs = async (db, filters = {}) => {
 
 // Función para obtener datos de reportes
 // Función modificada para obtener datos de reportes
+
 export const fetchReports = async (db, filters = {}, limitCount = 10) => {
   try {
     console.log(`Obteniendo hasta ${limitCount} reportes con filtros:`, filters);
     
-    // Extraer filtros de fecha si existen
-    const { dateRange, tipoFiltro } = filters;
-    let fechaFiltro = null;
+    // Extraer filtros de fecha del objeto dateRange proporcionado
+    const { dateRange } = filters;
     
-    if (tipoFiltro === 'dia' && dateRange && dateRange.fin) {
-      fechaFiltro = asegurarFormatoFecha(dateRange.fin);
-      console.log(`Aplicando filtro de fecha para día específico: ${fechaFiltro}`);
+    if (!dateRange || (!dateRange.inicio && !dateRange.fin)) {
+      console.warn('No se proporcionaron filtros de fecha válidos');
     }
     
     // Primero intentamos obtener de Reportes_Links
@@ -312,8 +320,31 @@ export const fetchReports = async (db, filters = {}, limitCount = 10) => {
     let queryConstraints = [orderBy('fecha', 'desc')];
     
     // Si hay filtro de fecha, agregarlo a la consulta
-    if (fechaFiltro) {
-      queryConstraints.push(where('fecha', '==', fechaFiltro));
+    if (dateRange) {
+      if (dateRange.inicio && dateRange.fin && dateRange.inicio === dateRange.fin) {
+        // Si es el mismo día, filtrar por igualdad exacta
+        console.log(`Aplicando filtro de fecha para día específico: ${dateRange.inicio}`);
+        queryConstraints.push(where('fecha', '==', dateRange.inicio));
+      } else {
+        // Si es un rango, aplicar filtros >= y <=
+        if (dateRange.inicio) {
+          console.log(`Aplicando filtro de fecha inicio: ${dateRange.inicio}`);
+          queryConstraints.push(where('fecha', '>=', dateRange.inicio));
+        }
+        if (dateRange.fin) {
+          console.log(`Aplicando filtro de fecha fin: ${dateRange.fin}`);
+          queryConstraints.push(where('fecha', '<=', dateRange.fin));
+        }
+      }
+    }
+    
+    // Aplicar filtros adicionales si existen
+    if (filters.category && filters.category !== 'TODAS') {
+      queryConstraints.push(where('categoria', '==', filters.category));
+    }
+    
+    if (filters.location && filters.location !== 'TODAS') {
+      queryConstraints.push(where('subcontratistaBLoque', '==', filters.location));
     }
     
     // Limitar cantidad de resultados
@@ -325,18 +356,25 @@ export const fetchReports = async (db, filters = {}, limitCount = 10) => {
     console.log(`Se encontraron ${snapshot.docs.length} reportes en Reportes_Links con los filtros aplicados`);
     
     // Si no hay reportes con los filtros aplicados, intentar sin filtros
-    if (snapshot.empty && fechaFiltro) {
+    if (snapshot.empty && dateRange && (dateRange.inicio || dateRange.fin)) {
       console.log("No se encontraron reportes con filtro de fecha. Intentando sin filtro...");
-      reportesQuery = query(reportesRef, orderBy('fecha', 'desc'), limit(limitCount));
+      
+      // Mantener solo el ordenamiento y límite
+      const fallbackConstraints = [orderBy('fecha', 'desc'), limit(limitCount)];
+      reportesQuery = query(reportesRef, ...fallbackConstraints);
       snapshot = await getDocs(reportesQuery);
+      
       console.log(`Se encontraron ${snapshot.docs.length} reportes sin filtro de fecha`);
     }
     
     // Si sigue vacío, intentar con colección Reportes
     if (snapshot.empty) {
+      console.log("Intentando buscar en colección 'Reportes'");
+      
       reportesRef = collection(db, 'Reportes');
       reportesQuery = query(reportesRef, orderBy('fecha', 'desc'), limit(limitCount));
       snapshot = await getDocs(reportesQuery);
+      
       console.log(`Se encontraron ${snapshot.docs.length} reportes en Reportes`);
     }
     
@@ -358,7 +396,7 @@ export const fetchReports = async (db, filters = {}, limitCount = 10) => {
     });
     
     // Log para depuración
-    console.log("Reportes procesados:", reportes);
+    console.log("Reportes procesados:", reportes.length);
     
     return reportes;
   } catch (error) {
@@ -366,6 +404,8 @@ export const fetchReports = async (db, filters = {}, limitCount = 10) => {
     throw error;
   }
 };
+
+
 // Función para obtener distribución por categorías
 export const fetchDistributionByCategory = async (db, filters = {}) => {
   try {

@@ -5,23 +5,53 @@ import {
   obtenerSemanaActual,
   obtenerMesActual,
   generarSemanas,
-  generarMeses
+  generarMeses,
+  formatearFechaParaMostrar,
+  obtenerFechaActual,
+  obtenerFechaRetrocedida
 } from '../../utils/dateUtils';
 import DashboardContext from '../../context/DashboardContext';
 
 const FiltroDashboard = () => {
   const { filtros, setFiltros } = useContext(DashboardContext);
   const [mostrarAvanzados, setMostrarAvanzados] = useState(false);
+  const [fechasModificadas, setFechasModificadas] = useState(false);
 
   // Manejadores de eventos
   const cambiarTipoFiltro = (tipo) => {
-    setFiltros(prev => ({ ...prev, tipoFiltro: tipo }));
+    // Al cambiar el tipo de filtro, restablecer fechas por defecto según el tipo
+    let nuevosFiltros = { ...filtros, tipoFiltro: tipo };
+    
+    switch (tipo) {
+      case 'dia':
+        nuevosFiltros.rango = { 
+          ...nuevosFiltros.rango, 
+          fin: obtenerFechaActual() 
+        };
+        break;
+      case 'semana':
+        nuevosFiltros.semana = obtenerSemanaActual();
+        break;
+      case 'mes':
+        nuevosFiltros.mes = obtenerMesActual();
+        break;
+      case 'rango':
+        if (!fechasModificadas) {
+          nuevosFiltros.rango = { 
+            inicio: obtenerFechaRetrocedida(30), 
+            fin: obtenerFechaActual() 
+          };
+        }
+        break;
+    }
+    
+    setFiltros(nuevosFiltros);
   };
 
   const cambiarFechaRango = (campo, valor) => {
-    // Usamos el valor directamente del input type="date", ya viene en formato YYYY-MM-DD
     console.log(`Cambiando fecha ${campo} a: ${valor}`);
     
+    setFechasModificadas(true);
     setFiltros(prev => ({
       ...prev,
       rango: { ...prev.rango, [campo]: valor }
@@ -46,8 +76,33 @@ const FiltroDashboard = () => {
 
   const aplicarFiltros = () => {
     // Esta función ya actualiza el estado a través de los cambios anteriores
-    // Podríamos agregar funcionalidad adicional si es necesario
     console.log("Filtros aplicados:", filtros);
+  };
+
+  // Mostrar mensaje de ayuda sobre el rango de fechas actual
+  const mostrarMensajeRangoActual = () => {
+    switch (filtros.tipoFiltro) {
+      case 'dia':
+        return `Mostrando datos para el día ${formatearFechaParaMostrar(filtros.rango.fin)}`;
+      case 'semana': {
+        // Extraer año y número de semana
+        const [año, numSemana] = filtros.semana.split('-W');
+        return `Mostrando datos para la semana ${numSemana} del año ${año}`;
+      }
+      case 'mes': {
+        // Extraer año y mes
+        const [año, mes] = filtros.mes.split('-');
+        const nombresMeses = [
+          'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+          'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
+        ];
+        return `Mostrando datos para ${nombresMeses[parseInt(mes) - 1]} de ${año}`;
+      }
+      case 'rango':
+        return `Mostrando datos desde ${formatearFechaParaMostrar(filtros.rango.inicio)} hasta ${formatearFechaParaMostrar(filtros.rango.fin)}`;
+      default:
+        return '';
+    }
   };
 
   return (
@@ -95,6 +150,7 @@ const FiltroDashboard = () => {
                 className="w-full p-2 border border-gray-300 rounded-md"
                 value={filtros.rango.fin} 
                 onChange={(e) => cambiarFechaRango('fin', e.target.value)}
+                max={obtenerFechaActual()} // Limitar a la fecha actual
               />
             </div>
           )}
@@ -138,6 +194,7 @@ const FiltroDashboard = () => {
                   className="w-full p-2 border border-gray-300 rounded-md"
                   value={filtros.rango.inicio} 
                   onChange={(e) => cambiarFechaRango('inicio', e.target.value)}
+                  max={filtros.rango.fin} // No permitir fechas posteriores a la fecha fin
                 />
               </div>
               <div>
@@ -147,11 +204,18 @@ const FiltroDashboard = () => {
                   className="w-full p-2 border border-gray-300 rounded-md"
                   value={filtros.rango.fin} 
                   onChange={(e) => cambiarFechaRango('fin', e.target.value)}
+                  min={filtros.rango.inicio} // No permitir fechas anteriores a la fecha inicio
+                  max={obtenerFechaActual()} // Limitar a la fecha actual
                 />
               </div>
             </div>
           )}
         </div>
+      </div>
+      
+      {/* Mensaje informativo sobre el rango actual */}
+      <div className="mb-4 text-sm text-blue-600 italic">
+        {mostrarMensajeRangoActual()}
       </div>
       
       {/* Botón para mostrar/ocultar filtros avanzados */}
