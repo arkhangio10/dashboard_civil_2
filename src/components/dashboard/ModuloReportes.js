@@ -444,27 +444,6 @@ const cargarDatosReporteFirebase = async (reporte) => {
     };
   };
   
-  // Explicación de cálculos de costos y ganancias
-  const ExplicacionCalculos = () => (
-    <div className="bg-white p-4 rounded-lg border border-blue-200 mb-4">
-      <div className="flex items-center mb-3">
-        <Info size={18} className="text-blue-600 mr-2" />
-        <h4 className="font-medium text-blue-800">Acerca de los cálculos de costos y ganancias</h4>
-      </div>
-      
-      <div className="text-sm text-gray-700">
-        <p className="mb-2">Los cálculos se realizan de la siguiente manera:</p>
-        <ul className="list-disc pl-5 space-y-1">
-          <li><strong>Costo MO:</strong> Es el costo real de la mano de obra según categoría (OPERARIO: S/ 23.00/h, OFICIAL: S/ 18.09/h, PEÓN: S/ 16.38/h)</li>
-          <li><strong>Ganancia:</strong> Es el valor total valorizado distribuido proporcionalmente según las horas trabajadas</li>
-          <li><strong>Costo Expediente:</strong> Es la suma del Costo MO más la Ganancia para cada trabajador</li>
-          <li><strong>Costo Actividad:</strong> Se obtiene del campo precio en la colección de actividades</li>
-        </ul>
-        <p className="mt-2">El Total Valorizado que se muestra en el reporte corresponde directamente a la Ganancia total del mismo.</p>
-      </div>
-    </div>
-  );
-  
   // Función mejorada para renderizar iconos de ordenamiento
   const renderOrdenIcon = (campo) => {
     const isActive = ordenCampo === campo;
@@ -533,20 +512,12 @@ const cargarDatosReporteFirebase = async (reporte) => {
                 </button>
                 
                 {/* Botón para mostrar/ocultar explicación */}
-                <button
-                  onClick={() => setMostrarExplicacion(!mostrarExplicacion)}
-                  className={`px-3 py-1 text-xs rounded-md ${mostrarExplicacion ? 'bg-blue-600 text-white' : 'bg-gray-100'}`}
-                >
-                  <span className="flex items-center">
-                    <Info size={14} className="mr-1" />
-                    Explicación
-                  </span>
-                </button>
+                
               </div>
             </div>
             
             {/* Explicación de cálculos */}
-            {mostrarExplicacion && <ExplicacionCalculos />}
+            
             
             {/* Panel de filtros básicos */}
             {mostrarFiltros && (

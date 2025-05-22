@@ -110,7 +110,7 @@ const AnalisisCostos = () => {
           <div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
               <div className="bg-blue-50 p-3 rounded-lg">
-                <p className="text-sm text-gray-600">Valor Metrado Total</p>
+                <p className="text-sm text-gray-600">Costo de expedientes TOTAL</p>
                 <p className="text-lg font-bold text-blue-700">{formatoMoneda(metricas.totalValorMetrado)}</p>
                 <p className="text-xs text-gray-500">Valorización por actividades ejecutadas</p>
               </div>

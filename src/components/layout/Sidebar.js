@@ -83,30 +83,7 @@ const Sidebar = ({ moduloActivo, setModuloActivo }) => {
           </button>
           
           <hr className="my-4 border-blue-700" />
-          
-          <button 
-            onClick={() => setModuloActivo('firebase')}
-            className={`flex items-center w-full px-4 py-3 mb-2 rounded-md ${moduloActivo === 'firebase' ? 'bg-blue-700' : 'hover:bg-blue-700'}`}
-          >
-            <Database className="mr-3" size={20} />
-            <span>Firebase</span>
-          </button>
-          
-          <button className="flex items-center w-full px-4 py-3 mb-2 rounded-md hover:bg-blue-700">
-            <Calendar className="mr-3" size={20} />
-            <span>Programación</span>
-          </button>
-          
-          <button className="flex items-center w-full px-4 py-3 mb-2 rounded-md hover:bg-blue-700">
-            <FileText className="mr-3" size={20} />
-            <span>Documentación</span>
-          </button>
-          
-          <button className="flex items-center w-full px-4 py-3 mb-2 rounded-md hover:bg-blue-700">
-            <Settings className="mr-3" size={20} />
-            <span>Configuración</span>
-          </button>
-          
+        
           <button 
             onClick={handleLogout}
             className="flex items-center w-full px-4 py-3 mb-2 rounded-md text-red-300 hover:bg-red-700 hover:text-white"

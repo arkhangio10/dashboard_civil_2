@@ -31,7 +31,7 @@ const KpisDashboard = () => {
         {/* KPI: Valor Total */}
         <div className="bg-green-50 p-3 rounded-lg border border-green-100">
           <div>
-            <p className="text-sm text-gray-600 font-medium">Valor generado</p>
+            <p className="text-sm text-gray-600 font-medium">Costo de expedientes</p>
             <p className="text-lg font-bold text-green-800">{formatoMoneda(datos.kpis.valorTotal)}</p>
           </div>
           <p className="text-xs text-gray-500 mt-2">Valor total facturado</p>
