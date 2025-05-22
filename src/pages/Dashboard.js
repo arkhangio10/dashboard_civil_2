@@ -10,6 +10,7 @@ import AnalisisTrabajadores from '../components/dashboard/AnalisisTrabajadores';
 import ModuloReportes from '../components/dashboard/ModuloReportes';
 import DebugFirebase from '../components/dashboard/DebugFirebase';
 import InitializeFirebase from '../components/dashboard/InitializeFirebase';
+import ResumenDiario from '../components/dashboard/ResumenDiario'; // Importamos el nuevo componente
 import { DashboardProvider } from '../context/DashboardContext';
 import { useAuth } from '../context/AuthContext';
 
@@ -32,6 +33,9 @@ const Dashboard = () => {
             <div className="grid grid-cols-1 gap-4 mb-4">
               <KpisDashboard />
             </div>
+            <div className="grid grid-cols-1 gap-4 mb-4">
+              <ResumenDiario /> {/* Agregamos el componente de Resumen Diario */}
+            </div>
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
               <AnalisisCostos />
               <AnalisisProductividad />
@@ -46,6 +50,8 @@ const Dashboard = () => {
         return <AnalisisTrabajadores />;
       case 'reportes':
         return <ModuloReportes />;
+      case 'resumenDiario': // Agregamos nueva opción en el menú
+        return <ResumenDiario />;
       case 'firebase':
         return (
           <div className="grid grid-cols-1 gap-4">
@@ -125,6 +131,16 @@ const Dashboard = () => {
                   className={`flex items-center w-full px-4 py-3 mb-2 rounded-md ${moduloActivo === 'resumen' ? 'bg-blue-700' : 'hover:bg-blue-700'}`}
                 >
                   <span>Resumen General</span>
+                </button>
+                
+                <button 
+                  onClick={() => {
+                    setModuloActivo('resumenDiario');
+                    setMenuMobile(false);
+                  }}
+                  className={`flex items-center w-full px-4 py-3 mb-2 rounded-md ${moduloActivo === 'resumenDiario' ? 'bg-blue-700' : 'hover:bg-blue-700'}`}
+                >
+                  <span>Resumen Diario</span>
                 </button>
                 
                 <button 

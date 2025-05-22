@@ -1,6 +1,6 @@
 // src/components/layout/Sidebar.js
 import React from 'react';
-import { LayoutDashboard, DollarSign, Activity, Users, Layers, Calendar, FileText, Settings, LogOut, Database } from 'lucide-react';
+import { LayoutDashboard, DollarSign, Activity, Users, Layers, Calendar, FileText, Settings, LogOut, Database, BarChart2 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 
@@ -39,6 +39,15 @@ const Sidebar = ({ moduloActivo, setModuloActivo }) => {
           >
             <LayoutDashboard className="mr-3" size={20} />
             <span>Resumen General</span>
+          </button>
+          
+          {/* Nuevo botón para Resumen Diario */}
+          <button 
+            onClick={() => setModuloActivo('resumenDiario')}
+            className={`flex items-center w-full px-4 py-3 mb-2 rounded-md ${moduloActivo === 'resumenDiario' ? 'bg-blue-700' : 'hover:bg-blue-700'}`}
+          >
+            <BarChart2 className="mr-3" size={20} />
+            <span>Resumen Diario</span>
           </button>
           
           <button 
