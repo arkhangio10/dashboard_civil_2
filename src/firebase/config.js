@@ -14,25 +14,34 @@ const firebaseConfig = {
 };
 
 // Configuraciones para cada obra (mantenemos pruebas como la principal)
-export const firebaseConfigs = {
+export const firebaseConfigs = {//CENEPA=REPORTE-PRODUCCION
   pruebas: firebaseConfig,
-  obra1: {
-    // Configuración para obra1, reemplazar con datos reales cuando se tengan
-    apiKey: "AIzaSyCXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
-    authDomain: "obra1-xxxxx.firebaseapp.com",
-    projectId: "obra1-xxxxx",
-    storageBucket: "obra1-xxxxx.appspot.com",
-    messagingSenderId: "111111111111",
-    appId: "1:111111111111:web:aaaaaaaaaaaaaaaaaaaa"
+  CENEPA: {
+    
+    apiKey: "AIzaSyBd3pzTO0NrlSLUr8g5KzycgD46-lfav30",
+    authDomain: "reporte-produccion.firebaseapp.com",
+    projectId: "reporte-produccion",
+    storageBucket: "reporte-produccion.firebasestorage.app",
+    messagingSenderId: "383552982159",
+    appId: "1:383552982159:web:c91b92b4f428c95947f4fa"
   },
-  obra2: {
-    // Configuración para obra2, reemplazar con datos reales cuando se tengan
-    apiKey: "AIzaSyDYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYY",
-    authDomain: "obra2-yyyyy.firebaseapp.com",
-    projectId: "obra2-yyyyy",
-    storageBucket: "obra2-yyyyy.appspot.com",
-    messagingSenderId: "222222222222",
-    appId: "1:222222222222:web:bbbbbbbbbbbbbbbbbbbb"
+  obra2: { //  MARA = REPORTE - PRODUCCION_2
+    
+    apiKey: "AIzaSyAr4wolo5g206cv9up-KwWf1MfaklEyVy8",
+    authDomain: "reporte-produccion-2.firebaseapp.com",
+    projectId: "reporte-produccion-2",
+    storageBucket: "reporte-produccion-2.firebasestorage.app",
+    messagingSenderId: "551144835546",
+    appId: "1:551144835546:web:4c0233817c80c7c08bd8e3"
+  },
+  obra3: {//FONSECA = REPORTE - PRODUCCION_3
+    
+    apiKey: "AIzaSyAgxMCPOKYiTyg58oMcx64ZyjuZrwcmO2A",
+    authDomain: "reporte-produccion-3.firebaseapp.com",
+    projectId: "reporte-produccion-3",
+    storageBucket: "reporte-produccion-3.firebasestorage.app",
+    messagingSenderId: "29278619694",
+    appId: "1:29278619694:web:0e4a826fe4c54e1d14f7bf"
   }
 };
 
@@ -81,6 +90,20 @@ export const initializeFirebase = (projectId) => {
 export const getAvailableProjects = () => {
   return Object.keys(firebaseConfigs).map(key => ({
     id: key,
-    name: key.charAt(0).toUpperCase() + key.slice(1) // Capitalizar la primera letra
+    // Convertir nombres a formato más legible
+    name: formatProjectName(key)
   }));
+};
+
+// Función auxiliar para formatear nombres de proyectos
+const formatProjectName = (projectId) => {
+  const nameMap = {
+    pruebas: "Pruebas",
+    CENEPA: "CENEPA",
+    obra2: "MARA", 
+    obra3: "FONSECA"
+  };
+  
+  // Si hay un nombre personalizado, usarlo; sino, capitalizar el ID
+  return nameMap[projectId] || projectId.charAt(0).toUpperCase() + projectId.slice(1).replace(/_/g, ' ');
 };
