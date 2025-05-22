@@ -17,13 +17,16 @@ import {
   DollarSign,
   BarChart2,
   AlertCircle,
-  Info
+  Info,
+  ChevronLeft,
+  ChevronRight,
+  MoreHorizontal
 } from 'lucide-react';
 import { useDashboard } from '../../context/DashboardContext';
 import { useAuth } from '../../context/AuthContext';
 import { formatoMoneda } from '../../utils/formatUtils';
 import GraficoReportes from './GraficoReportes';
-import { collection, doc, getDoc, getDocs, query, where, orderBy, limit } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, query, where, orderBy, limit, startAfter } from 'firebase/firestore';
 
 const ModuloReportes = () => {
   const [tabActivo, setTabActivo] = useState('reportes');
@@ -34,10 +37,17 @@ const ModuloReportes = () => {
   const [mostrarFiltrosAvanzados, setMostrarFiltrosAvanzados] = useState(false);
   const [cargandoReporte, setCargandoReporte] = useState(false);
   const [errorCarga, setErrorCarga] = useState(null);
-  const [mostrarExplicacion, setMostrarExplicacion] = useState(false);
   
   // Nuevo estado para manejar el reporte seleccionado que se mostrará en pantalla
   const [reporteSeleccionado, setReporteSeleccionado] = useState(null);
+  
+  // Estados para paginación
+  const [cargandoMasReportes, setCargandoMasReportes] = useState(false);
+  const [reportesPorPagina] = useState(10); // Constante para reportes por página
+  const [paginaActual, setPaginaActual] = useState(1);
+  const [totalReportes, setTotalReportes] = useState(0);
+  const [hayMasReportes, setHayMasReportes] = useState(true);
+  const [ultimoDocumento, setUltimoDocumento] = useState(null);
   
   // Estados para los filtros
   const [filtroCreador, setFiltroCreador] = useState('');
@@ -56,8 +66,9 @@ const ModuloReportes = () => {
   const { db } = useAuth();
   const { datos, loading, filtros, recargarDatos } = useDashboard();
   
-  // Obtener reportes del contexto
-  const reportesOriginales = datos.reportes || [];
+  // Obtener reportes del contexto y combinar con reportes cargados por paginación
+  const [reportesAdicionales, setReportesAdicionales] = useState([]);
+  const reportesOriginales = [...(datos.reportes || []), ...reportesAdicionales];
   
   // Obtener creadores y bloques únicos para los selectores de filtros
   const [creadoresList, setCreadoresList] = useState([]);
@@ -80,6 +91,106 @@ const ModuloReportes = () => {
     return `${avance.toFixed(1)}%`;
   };
   
+  // Función para cargar más reportes desde Firebase
+  const cargarMasReportes = async () => {
+    if (!db || cargandoMasReportes || !hayMasReportes) return;
+    
+    setCargandoMasReportes(true);
+    
+    try {
+      console.log('Cargando más reportes...');
+      
+      let reportesRef = collection(db, 'Reportes_Links');
+      let queryConstraints = [orderBy('fecha', 'desc')];
+      
+      // Si hay filtros de fecha aplicados
+      if (filtroFecha.inicio && filtroFecha.fin) {
+        if (filtroFecha.inicio === filtroFecha.fin) {
+          queryConstraints.push(where('fecha', '==', filtroFecha.inicio));
+        } else {
+          if (filtroFecha.inicio) {
+            queryConstraints.push(where('fecha', '>=', filtroFecha.inicio));
+          }
+          if (filtroFecha.fin) {
+            queryConstraints.push(where('fecha', '<=', filtroFecha.fin));
+          }
+        }
+      }
+      
+      // Aplicar filtros adicionales
+      if (filtroCreador) {
+        queryConstraints.push(where('creadoPor', '==', filtroCreador));
+      }
+      
+      if (filtroBloque) {
+        queryConstraints.push(where('subcontratistaBLoque', '==', filtroBloque));
+      }
+      
+      // Paginación: empezar después del último documento
+      if (ultimoDocumento) {
+        queryConstraints.push(startAfter(ultimoDocumento));
+      }
+      
+      // Limitar resultados
+      queryConstraints.push(limit(reportesPorPagina));
+      
+      const reportesQuery = query(reportesRef, ...queryConstraints);
+      const snapshot = await getDocs(reportesQuery);
+      
+      console.log(`Se encontraron ${snapshot.docs.length} reportes adicionales`);
+      
+      if (snapshot.docs.length > 0) {
+        // Normalizar los nuevos datos
+        const nuevosReportes = snapshot.docs.map(doc => {
+          const data = doc.data();
+          
+          return {
+            id: doc.id,
+            reporteId: data.reporteId || doc.id,
+            creadoPor: data.creadoPor || "Sin datos",
+            fecha: data.fecha || new Date().toISOString().split('T')[0],
+            subcontratistaBLoque: data.subcontratistaBLoque || data.subcontratistaBloque || "Sin datos",
+            totalTrabajadores: data.totalTrabajadores || 0,
+            totalActividades: data.totalActividades || 0,
+            totalValorizado: data.totalValorizado || 0,
+            enlaceSheet: data.enlaceSheet || data.spreadsheetUrl || data.enlaceDrive || ""
+          };
+        });
+        
+        // Agregar a la lista de reportes adicionales
+        setReportesAdicionales(prev => [...prev, ...nuevosReportes]);
+        
+        // Actualizar el último documento para la próxima carga
+        setUltimoDocumento(snapshot.docs[snapshot.docs.length - 1]);
+        
+        // Actualizar página actual
+        setPaginaActual(prev => prev + 1);
+        
+        // Verificar si hay más reportes
+        if (snapshot.docs.length < reportesPorPagina) {
+          setHayMasReportes(false);
+        }
+      } else {
+        // No hay más reportes
+        setHayMasReportes(false);
+      }
+      
+    } catch (error) {
+      console.error('Error al cargar más reportes:', error);
+      setErrorCarga('Error al cargar más reportes: ' + error.message);
+    } finally {
+      setCargandoMasReportes(false);
+    }
+  };
+  
+  // Función para reiniciar la paginación cuando cambian los filtros
+  const reiniciarPaginacion = () => {
+    setReportesAdicionales([]);
+    setUltimoDocumento(null);
+    setPaginaActual(1);
+    setHayMasReportes(true);
+  };
+  
   // Función para limpiar filtros
   const limpiarFiltros = () => {
     setBusquedaTexto('');
@@ -93,12 +204,15 @@ const ModuloReportes = () => {
     setFiltroValorizadoMax('');
     setOrdenCampo('totalValorizado');
     setOrdenDireccion('desc');
+    
+    // Reiniciar paginación
+    reiniciarPaginacion();
   };
   
   // Función para aplicar filtros
   const aplicarFiltros = () => {
-    // Esta función es principalmente para mantener coherencia con la UI
-    // Los filtros se aplican automáticamente mediante los efectos y memo
+    // Reiniciar paginación cuando se aplican nuevos filtros
+    reiniciarPaginacion();
     setMostrarFiltrosAvanzados(false);
   };
   
@@ -122,6 +236,7 @@ const ModuloReportes = () => {
     }, 30000);
   };
   
+  // Efecto para actualizar listas de creadores y bloques
   useEffect(() => {
     // Extraer lista de creadores únicos
     const creadores = [...new Set(reportesOriginales.map(r => r.creadoPor || 'Sin datos'))];
@@ -132,6 +247,11 @@ const ModuloReportes = () => {
     setBloquesList(bloques);
     
   }, [reportesOriginales]);
+  
+  // Efecto para reiniciar paginación cuando cambian filtros críticos
+  useEffect(() => {
+    reiniciarPaginacion();
+  }, [filtroCreador, filtroFecha.inicio, filtroFecha.fin, filtroBloque]);
   
   // Aplicar filtros a los reportes
   const reportesFiltrados = React.useMemo(() => {
@@ -276,98 +396,94 @@ const ModuloReportes = () => {
   };
   
   // Función para cargar datos completos del reporte desde Firebase
-const cargarDatosReporteFirebase = async (reporte) => {
-  const reporteId = reporte.id || reporte.reporteId;
-  
-  if (!reporteId) {
-    throw new Error("ID de reporte no válido");
-  }
-  
-  // Primero, obtener información del reporte desde Reportes_Links para el valor valorizado
-  let gananciaTotal = 0;
-  try {
-    const reporteLinkRef = doc(db, 'Reportes_Links', reporteId);
-    const reporteLinkDoc = await getDoc(reporteLinkRef);
+  const cargarDatosReporteFirebase = async (reporte) => {
+    const reporteId = reporte.id || reporte.reporteId;
     
-    if (reporteLinkDoc.exists()) {
-      const datosLink = reporteLinkDoc.data();
-      // CAMBIO: Ahora el totalValorizado es directamente la ganancia
-      gananciaTotal = datosLink.totalValorizado || 0;
-    } else {
-      // Intentar obtener de los datos pasados del reporte
+    if (!reporteId) {
+      throw new Error("ID de reporte no válido");
+    }
+    
+    // Primero, obtener información del reporte desde Reportes_Links para el valor valorizado
+    let gananciaTotal = 0;
+    try {
+      const reporteLinkRef = doc(db, 'Reportes_Links', reporteId);
+      const reporteLinkDoc = await getDoc(reporteLinkRef);
+      
+      if (reporteLinkDoc.exists()) {
+        const datosLink = reporteLinkDoc.data();
+        // CAMBIO: Ahora el totalValorizado es directamente la ganancia
+        gananciaTotal = datosLink.totalValorizado || 0;
+      } else {
+        // Intentar obtener de los datos pasados del reporte
+        gananciaTotal = reporte.totalValorizado || 0;
+      }
+    } catch (error) {
+      console.error("Error al buscar en Reportes_Links:", error);
+      // Fallar de forma silenciosa y usar el valor del reporte pasado
       gananciaTotal = reporte.totalValorizado || 0;
     }
-  } catch (error) {
-    console.error("Error al buscar en Reportes_Links:", error);
-    // Fallar de forma silenciosa y usar el valor del reporte pasado
-    gananciaTotal = reporte.totalValorizado || 0;
-  }
-  
-  // Obtener el documento principal del reporte
-  const reporteRef = doc(db, 'Reportes', reporteId);
-  const reporteDoc = await getDoc(reporteRef);
-  
-  if (!reporteDoc.exists()) {
-    console.log(`No se encontró el reporte con ID ${reporteId} en la colección 'Reportes'`);
-    throw new Error("Reporte no encontrado");
-  }
-  
-  // Obtener datos del documento principal
-  const datosReporte = reporteDoc.data();
-  
-  // Obtener subcolecciones (actividades y mano de obra)
-  const actividadesRef = collection(db, `Reportes/${reporteId}/actividades`);
-  const manoObraRef = collection(db, `Reportes/${reporteId}/mano_obra`);
-  
-  const [actividadesSnapshot, manoObraSnapshot] = await Promise.all([
-    getDocs(actividadesRef),
-    getDocs(manoObraRef)
-  ]);
-  
-  // Convertir a arrays - Ahora extraemos el precio directamente de cada actividad
-  const actividades = actividadesSnapshot.docs.map(doc => {
-    const data = doc.data();
     
-    // Intentar obtener el precio unitario directamente del documento de actividad
-    // Usamos la función extraerPrecioUnitario para buscar en varios campos posibles
-    let precioUnitario = 0;
+    // Obtener el documento principal del reporte
+    const reporteRef = doc(db, 'Reportes', reporteId);
+    const reporteDoc = await getDoc(reporteRef);
     
-    // Verificar los posibles campos donde podría estar el precio
-    if (data.precio !== undefined) {
-      precioUnitario = parseFloat(data.precio);
-    } else if (data.precioUnitario !== undefined) {
-      precioUnitario = parseFloat(data.precioUnitario);
-    } else if (data.precio_unitario !== undefined) {
-      precioUnitario = parseFloat(data.precio_unitario);
-    } else if (data.valorUnitario !== undefined) {
-      precioUnitario = parseFloat(data.valorUnitario);
-    } else if (data.pu !== undefined) {
-      precioUnitario = parseFloat(data.pu);
+    if (!reporteDoc.exists()) {
+      console.log(`No se encontró el reporte con ID ${reporteId} en la colección 'Reportes'`);
+      throw new Error("Reporte no encontrado");
     }
     
-    // Asegurar estructura correcta con el precio incluido
-    return {
-      id: doc.id,
-      nombre: data.proceso || data.nombre || `Actividad ${doc.id}`,
-      und: data.und || data.unidad || "UND",
-      metradoP: parseFloat(data.metradoP || 0),
-      metradoE: parseFloat(data.metradoE || 0),
-      avance: data.avance || calculateAvance(data.metradoP, data.metradoE),
-      causas: data.causas || "",
-      precioUnitario: precioUnitario, // Precio unitario extraído directamente
-      valorTotal: precioUnitario * parseFloat(data.metradoE || 0) // Calculamos el valor total
-    };
-  });
-  
-  // Si no hay actividades, lanzar error
-  if (actividades.length === 0) {
-    throw new Error("No se encontraron actividades para este reporte");
-  }
-
-
-
-
+    // Obtener datos del documento principal
+    const datosReporte = reporteDoc.data();
     
+    // Obtener subcolecciones (actividades y mano de obra)
+    const actividadesRef = collection(db, `Reportes/${reporteId}/actividades`);
+    const manoObraRef = collection(db, `Reportes/${reporteId}/mano_obra`);
+    
+    const [actividadesSnapshot, manoObraSnapshot] = await Promise.all([
+      getDocs(actividadesRef),
+      getDocs(manoObraRef)
+    ]);
+    
+    // Convertir a arrays - Ahora extraemos el precio directamente de cada actividad
+    const actividades = actividadesSnapshot.docs.map(doc => {
+      const data = doc.data();
+      
+      // Intentar obtener el precio unitario directamente del documento de actividad
+      // Usamos la función extraerPrecioUnitario para buscar en varios campos posibles
+      let precioUnitario = 0;
+      
+      // Verificar los posibles campos donde podría estar el precio
+      if (data.precio !== undefined) {
+        precioUnitario = parseFloat(data.precio);
+      } else if (data.precioUnitario !== undefined) {
+        precioUnitario = parseFloat(data.precioUnitario);
+      } else if (data.precio_unitario !== undefined) {
+        precioUnitario = parseFloat(data.precio_unitario);
+      } else if (data.valorUnitario !== undefined) {
+        precioUnitario = parseFloat(data.valorUnitario);
+      } else if (data.pu !== undefined) {
+        precioUnitario = parseFloat(data.pu);
+      }
+      
+      // Asegurar estructura correcta con el precio incluido
+      return {
+        id: doc.id,
+        nombre: data.proceso || data.nombre || `Actividad ${doc.id}`,
+        und: data.und || data.unidad || "UND",
+        metradoP: parseFloat(data.metradoP || 0),
+        metradoE: parseFloat(data.metradoE || 0),
+        avance: data.avance || calculateAvance(data.metradoP, data.metradoE),
+        causas: data.causas || "",
+        precioUnitario: precioUnitario, // Precio unitario extraído directamente
+        valorTotal: precioUnitario * parseFloat(data.metradoE || 0) // Calculamos el valor total
+      };
+    });
+    
+    // Si no hay actividades, lanzar error
+    if (actividades.length === 0) {
+      throw new Error("No se encontraron actividades para este reporte");
+    }
+
     // Calcular el total de horas trabajadas y costo de mano de obra
     let totalHorasTrabajadas = 0;
     let totalCostoMO = 0;
@@ -430,7 +546,7 @@ const cargarDatosReporteFirebase = async (reporte) => {
     });
     
     // Crear el reporte completo
-      return {
+    return {
       ...reporte,
       ...datosReporte,
       actividades,
@@ -510,14 +626,8 @@ const cargarDatosReporteFirebase = async (reporte) => {
                     {mostrarGrafico ? 'Ocultar gráfico' : 'Mostrar gráfico'}
                   </span>
                 </button>
-                
-                {/* Botón para mostrar/ocultar explicación */}
-                
               </div>
             </div>
-            
-            {/* Explicación de cálculos */}
-            
             
             {/* Panel de filtros básicos */}
             {mostrarFiltros && (
@@ -709,8 +819,16 @@ const cargarDatosReporteFirebase = async (reporte) => {
                 
                 {/* Tabla de reportes */}
                 <div className={`overflow-x-auto ${mostrarGrafico ? 'mt-6' : ''}`}>
-                  <div className="text-sm text-gray-500 mb-2">
-                    Mostrando {reportesFiltrados.length} de {reportesOriginales.length} reportes
+                  <div className="text-sm text-gray-500 mb-2 flex justify-between items-center">
+                    <span>Mostrando {reportesFiltrados.length} reportes</span>
+                    
+                    {/* Información de paginación */}
+                    <div className="flex items-center space-x-2">
+                      <span className="text-xs">Página {paginaActual}</span>
+                      {hayMasReportes && (
+                        <span className="text-xs text-blue-600">• Hay más disponibles</span>
+                      )}
+                    </div>
                   </div>
                   
                   <table className="min-w-full divide-y divide-gray-200">
@@ -812,6 +930,43 @@ const cargarDatosReporteFirebase = async (reporte) => {
                       ))}
                     </tbody>
                   </table>
+                  
+                  {/* Botón para cargar más reportes */}
+                  {hayMasReportes && (
+                    <div className="mt-4 text-center">
+                      <button
+                        onClick={cargarMasReportes}
+                        disabled={cargandoMasReportes}
+                        className={`flex items-center justify-center mx-auto px-6 py-3 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 ${
+                          cargandoMasReportes ? 'opacity-70 cursor-not-allowed' : ''
+                        }`}
+                      >
+                        {cargandoMasReportes ? (
+                          <>
+                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                            Cargando más reportes...
+                          </>
+                        ) : (
+                          <>
+                            <MoreHorizontal size={16} className="mr-2" />
+                            Cargar más reportes ({reportesPorPagina} más)
+                          </>
+                        )}
+                      </button>
+                      
+                      <p className="text-xs text-gray-500 mt-2">
+                        Se mostrarán hasta {reportesPorPagina} reportes adicionales
+                      </p>
+                    </div>
+                  )}
+                  
+                  {!hayMasReportes && reportesFiltrados.length > reportesPorPagina && (
+                    <div className="mt-4 text-center">
+                      <p className="text-sm text-gray-500">
+                        Se han cargado todos los reportes disponibles ({reportesFiltrados.length} total)
+                      </p>
+                    </div>
+                  )}
                 </div>
               </>
             )}
@@ -915,9 +1070,7 @@ const cargarDatosReporteFirebase = async (reporte) => {
                         </div>
                       </div>
                       
-                      {/* Actividades - con manejo para cuando no hay actividades */}
-                      
-
+                      {/* Actividades */}
                       <div className="mb-8">
                         <h3 className="text-lg font-medium mb-3">Actividades</h3>
                         {reporteSeleccionado.actividades?.length > 0 ? (
@@ -958,7 +1111,7 @@ const cargarDatosReporteFirebase = async (reporte) => {
                         )}
                       </div>
                       
-                      {/* Mano de Obra - con manejo para cuando no hay trabajadores */}
+                      {/* Mano de Obra */}
                       <div>
                         <h3 className="text-lg font-medium mb-3">Mano de Obra</h3>
                         {reporteSeleccionado.trabajadores?.length > 0 ? (
@@ -1090,15 +1243,106 @@ const cargarDatosReporteFirebase = async (reporte) => {
         return (
           <div>
             <h3 className="text-sm font-medium mb-3">Exportar Datos</h3>
-            <p className="text-sm text-gray-600">Funcionalidad de exportación en desarrollo.</p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="border border-gray-200 rounded-lg p-4">
+                <h4 className="font-medium mb-2">Exportar Reportes Filtrados</h4>
+                <p className="text-sm text-gray-600 mb-3">
+                  Exporta los reportes actualmente mostrados según los filtros aplicados.
+                </p>
+                <div className="space-y-2">
+                  <button className="w-full flex items-center justify-center px-4 py-2 bg-green-100 text-green-700 rounded hover:bg-green-200">
+                    <Download size={16} className="mr-2" />
+                    Exportar a Excel ({reportesFiltrados.length} reportes)
+                  </button>
+                  <button className="w-full flex items-center justify-center px-4 py-2 bg-blue-100 text-blue-700 rounded hover:bg-blue-200">
+                    <Download size={16} className="mr-2" />
+                    Exportar a CSV ({reportesFiltrados.length} reportes)
+                  </button>
+                </div>
+              </div>
+              
+              <div className="border border-gray-200 rounded-lg p-4">
+                <h4 className="font-medium mb-2">Exportar Todos los Datos</h4>
+                <p className="text-sm text-gray-600 mb-3">
+                  Exporta todos los reportes sin aplicar filtros.
+                </p>
+                <div className="space-y-2">
+                  <button className="w-full flex items-center justify-center px-4 py-2 bg-purple-100 text-purple-700 rounded hover:bg-purple-200">
+                    <Download size={16} className="mr-2" />
+                    Exportar Todo (Excel)
+                  </button>
+                  <button className="w-full flex items-center justify-center px-4 py-2 bg-orange-100 text-orange-700 rounded hover:bg-orange-200">
+                    <Download size={16} className="mr-2" />
+                    Generar Reporte PDF
+                  </button>
+                </div>
+              </div>
+            </div>
+            
+            <div className="mt-4 bg-yellow-50 p-4 rounded-lg border border-yellow-200">
+              <p className="text-sm text-yellow-700">
+                <strong>Nota:</strong> Las funcionalidades de exportación están en desarrollo. 
+                Próximamente podrás exportar los datos en diferentes formatos.
+              </p>
+            </div>
           </div>
         );
         
       case 'programacion':
         return (
           <div>
-            <h3 className="text-sm font-medium mb-3">Programación de Reportes</h3>
-            <p className="text-sm text-gray-600">Funcionalidad de programación en desarrollo.</p>
+            <h3 className="text-sm font-medium mb-3">Programación de Reportes Automáticos</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="border border-gray-200 rounded-lg p-4">
+                <h4 className="font-medium mb-2">Reportes Programados</h4>
+                <p className="text-sm text-gray-600 mb-3">
+                  Configura la generación automática de reportes.
+                </p>
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between p-2 bg-gray-50 rounded">
+                    <span className="text-sm">Reporte Semanal</span>
+                    <span className="text-xs text-gray-500">Lunes 8:00 AM</span>
+                  </div>
+                  <div className="flex items-center justify-between p-2 bg-gray-50 rounded">
+                    <span className="text-sm">Reporte Mensual</span>
+                    <span className="text-xs text-gray-500">1er día del mes</span>
+                  </div>
+                </div>
+                
+                <button className="w-full mt-3 flex items-center justify-center px-4 py-2 bg-blue-100 text-blue-700 rounded hover:bg-blue-200">
+                  <Calendar size={16} className="mr-2" />
+                  Configurar Nuevo
+                </button>
+              </div>
+              
+              <div className="border border-gray-200 rounded-lg p-4">
+                <h4 className="font-medium mb-2">Notificaciones</h4>
+                <p className="text-sm text-gray-600 mb-3">
+                  Configura las notificaciones para los reportes.
+                </p>
+                <div className="space-y-3">
+                  <label className="flex items-center">
+                    <input type="checkbox" className="mr-2" />
+                    <span className="text-sm">Notificar por email</span>
+                  </label>
+                  <label className="flex items-center">
+                    <input type="checkbox" className="mr-2" />
+                    <span className="text-sm">Enviar a Google Drive</span>
+                  </label>
+                  <label className="flex items-center">
+                    <input type="checkbox" className="mr-2" />
+                    <span className="text-sm">Integrar con Slack</span>
+                  </label>
+                </div>
+              </div>
+            </div>
+            
+            <div className="mt-4 bg-blue-50 p-4 rounded-lg border border-blue-200">
+              <p className="text-sm text-blue-700">
+                <strong>Próximamente:</strong> Podrás programar reportes automáticos que se generen 
+                y envíen según tu configuración, permitiendo un seguimiento continuo sin intervención manual.
+              </p>
+            </div>
           </div>
         );
         
@@ -1111,6 +1355,22 @@ const cargarDatosReporteFirebase = async (reporte) => {
     <div className="bg-white p-4 rounded-lg shadow-md border border-gray-200">
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-lg font-semibold">Módulo de Reportes</h2>
+        
+        {/* Indicador de estado de carga */}
+        {(loading || cargandoMasReportes) && (
+          <div className="flex items-center text-sm text-blue-600">
+            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600 mr-2"></div>
+            {cargandoMasReportes ? 'Cargando más reportes...' : 'Cargando...'}
+          </div>
+        )}
+        
+        {/* Mostrar error si existe */}
+        {errorCarga && (
+          <div className="text-sm text-red-600 flex items-center">
+            <AlertCircle size={16} className="mr-1" />
+            Error al cargar
+          </div>
+        )}
       </div>
       
       <div className="border-b border-gray-200 mb-4">
@@ -1126,6 +1386,11 @@ const cargarDatosReporteFirebase = async (reporte) => {
             <span className="flex items-center">
               <FileText size={16} className="mr-2" />
               Reportes
+              {reportesFiltrados.length > 0 && (
+                <span className="ml-2 bg-blue-100 text-blue-800 text-xs rounded-full px-2 py-1">
+                  {reportesFiltrados.length}
+                </span>
+              )}
             </span>
           </button>
           
