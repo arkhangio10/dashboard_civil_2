@@ -276,118 +276,97 @@ const ModuloReportes = () => {
   };
   
   // Función para cargar datos completos del reporte desde Firebase
-  const cargarDatosReporteFirebase = async (reporte) => {
-    const reporteId = reporte.id || reporte.reporteId;
+const cargarDatosReporteFirebase = async (reporte) => {
+  const reporteId = reporte.id || reporte.reporteId;
+  
+  if (!reporteId) {
+    throw new Error("ID de reporte no válido");
+  }
+  
+  // Primero, obtener información del reporte desde Reportes_Links para el valor valorizado
+  let gananciaTotal = 0;
+  try {
+    const reporteLinkRef = doc(db, 'Reportes_Links', reporteId);
+    const reporteLinkDoc = await getDoc(reporteLinkRef);
     
-    if (!reporteId) {
-      throw new Error("ID de reporte no válido");
-    }
-    
-    // Primero, obtener información del reporte desde Reportes_Links para el valor valorizado
-    let gananciaTotal = 0;
-    try {
-      const reporteLinkRef = doc(db, 'Reportes_Links', reporteId);
-      const reporteLinkDoc = await getDoc(reporteLinkRef);
-      
-      if (reporteLinkDoc.exists()) {
-        const datosLink = reporteLinkDoc.data();
-        // CAMBIO: Ahora el totalValorizado es directamente la ganancia
-        gananciaTotal = datosLink.totalValorizado || 0;
-      } else {
-        // Intentar obtener de los datos pasados del reporte
-        gananciaTotal = reporte.totalValorizado || 0;
-      }
-    } catch (error) {
-      console.error("Error al buscar en Reportes_Links:", error);
-      // Fallar de forma silenciosa y usar el valor del reporte pasado
+    if (reporteLinkDoc.exists()) {
+      const datosLink = reporteLinkDoc.data();
+      // CAMBIO: Ahora el totalValorizado es directamente la ganancia
+      gananciaTotal = datosLink.totalValorizado || 0;
+    } else {
+      // Intentar obtener de los datos pasados del reporte
       gananciaTotal = reporte.totalValorizado || 0;
     }
+  } catch (error) {
+    console.error("Error al buscar en Reportes_Links:", error);
+    // Fallar de forma silenciosa y usar el valor del reporte pasado
+    gananciaTotal = reporte.totalValorizado || 0;
+  }
+  
+  // Obtener el documento principal del reporte
+  const reporteRef = doc(db, 'Reportes', reporteId);
+  const reporteDoc = await getDoc(reporteRef);
+  
+  if (!reporteDoc.exists()) {
+    console.log(`No se encontró el reporte con ID ${reporteId} en la colección 'Reportes'`);
+    throw new Error("Reporte no encontrado");
+  }
+  
+  // Obtener datos del documento principal
+  const datosReporte = reporteDoc.data();
+  
+  // Obtener subcolecciones (actividades y mano de obra)
+  const actividadesRef = collection(db, `Reportes/${reporteId}/actividades`);
+  const manoObraRef = collection(db, `Reportes/${reporteId}/mano_obra`);
+  
+  const [actividadesSnapshot, manoObraSnapshot] = await Promise.all([
+    getDocs(actividadesRef),
+    getDocs(manoObraRef)
+  ]);
+  
+  // Convertir a arrays - Ahora extraemos el precio directamente de cada actividad
+  const actividades = actividadesSnapshot.docs.map(doc => {
+    const data = doc.data();
     
-    // Obtener el documento principal del reporte
-    const reporteRef = doc(db, 'Reportes', reporteId);
-    const reporteDoc = await getDoc(reporteRef);
+    // Intentar obtener el precio unitario directamente del documento de actividad
+    // Usamos la función extraerPrecioUnitario para buscar en varios campos posibles
+    let precioUnitario = 0;
     
-    if (!reporteDoc.exists()) {
-      console.log(`No se encontró el reporte con ID ${reporteId} en la colección 'Reportes'`);
-      throw new Error("Reporte no encontrado");
+    // Verificar los posibles campos donde podría estar el precio
+    if (data.precio !== undefined) {
+      precioUnitario = parseFloat(data.precio);
+    } else if (data.precioUnitario !== undefined) {
+      precioUnitario = parseFloat(data.precioUnitario);
+    } else if (data.precio_unitario !== undefined) {
+      precioUnitario = parseFloat(data.precio_unitario);
+    } else if (data.valorUnitario !== undefined) {
+      precioUnitario = parseFloat(data.valorUnitario);
+    } else if (data.pu !== undefined) {
+      precioUnitario = parseFloat(data.pu);
     }
     
-    // Obtener datos del documento principal
-    const datosReporte = reporteDoc.data();
-    
-    // Obtener subcolecciones (actividades y mano de obra)
-    const actividadesRef = collection(db, `Reportes/${reporteId}/actividades`);
-    const manoObraRef = collection(db, `Reportes/${reporteId}/mano_obra`);
-    
-    const [actividadesSnapshot, manoObraSnapshot] = await Promise.all([
-      getDocs(actividadesRef),
-      getDocs(manoObraRef)
-    ]);
-    
-    // Convertir a arrays - Ahora con precio obtenido del documento
-    const actividades = await Promise.all(actividadesSnapshot.docs.map(async doc => {
-      const data = doc.data();
-      
-      // Intentar obtener el precio/costo de la actividad desde la colección específica
-      let costo = 0;
-      try {
-        // Obtener referencia a la actividad detallada en la colección de actividades
-        // Usando el id o proceso como identificador
-        const activId = doc.id;
-        const proceso = data.proceso || data.nombre || '';
-        
-        // Primero intentar con el ID exacto
-        let actividadDetalle = null;
-        try {
-          const actividadRef = doc(db, 'actividades', activId);
-          const actividadDoc = await getDoc(actividadRef);
-          if (actividadDoc.exists()) {
-            actividadDetalle = actividadDoc.data();
-          }
-        } catch (err) {
-          console.log(`No se encontró actividad con ID: ${activId}`);
-        }
-        
-        // Si no se encontró, buscar por proceso/nombre
-        if (!actividadDetalle && proceso) {
-          const actividadesQuery = query(
-            collection(db, 'actividades'),
-            where('proceso', '==', proceso),
-            limit(1)
-          );
-          
-          const querySnapshot = await getDocs(actividadesQuery);
-          if (!querySnapshot.empty) {
-            actividadDetalle = querySnapshot.docs[0].data();
-          }
-        }
-        
-        // Si encontramos los detalles, obtener el precio
-        if (actividadDetalle) {
-          costo = actividadDetalle.precio || 0;
-        }
-      } catch (err) {
-        console.error('Error al obtener costo de actividad:', err);
-      }
-      
-      // Asegurar estructura correcta con el costo/precio incluido
-      return {
-        id: doc.id,
-        nombre: data.proceso || data.nombre || `Actividad ${doc.id}`,
-        und: data.und || data.unidad || "UND",
-        metradoP: parseFloat(data.metradoP || 0),
-        metradoE: parseFloat(data.metradoE || 0),
-        avance: data.avance || calculateAvance(data.metradoP, data.metradoE),
-        causas: data.causas || "",
-        costo: costo, // Costo obtenido de la colección de actividades
-        precio: costo // Mantener consistencia en caso de que se use precio en vez de costo
-      };
-    }));
-    
-    // Si no hay actividades, lanzar error
-    if (actividades.length === 0) {
-      throw new Error("No se encontraron actividades para este reporte");
-    }
+    // Asegurar estructura correcta con el precio incluido
+    return {
+      id: doc.id,
+      nombre: data.proceso || data.nombre || `Actividad ${doc.id}`,
+      und: data.und || data.unidad || "UND",
+      metradoP: parseFloat(data.metradoP || 0),
+      metradoE: parseFloat(data.metradoE || 0),
+      avance: data.avance || calculateAvance(data.metradoP, data.metradoE),
+      causas: data.causas || "",
+      precioUnitario: precioUnitario, // Precio unitario extraído directamente
+      valorTotal: precioUnitario * parseFloat(data.metradoE || 0) // Calculamos el valor total
+    };
+  });
+  
+  // Si no hay actividades, lanzar error
+  if (actividades.length === 0) {
+    throw new Error("No se encontraron actividades para este reporte");
+  }
+
+
+
+
     
     // Calcular el total de horas trabajadas y costo de mano de obra
     let totalHorasTrabajadas = 0;
@@ -451,7 +430,7 @@ const ModuloReportes = () => {
     });
     
     // Crear el reporte completo
-    return {
+      return {
       ...reporte,
       ...datosReporte,
       actividades,
@@ -966,6 +945,8 @@ const ModuloReportes = () => {
                       </div>
                       
                       {/* Actividades - con manejo para cuando no hay actividades */}
+                      
+
                       <div className="mb-8">
                         <h3 className="text-lg font-medium mb-3">Actividades</h3>
                         {reporteSeleccionado.actividades?.length > 0 ? (
@@ -978,7 +959,8 @@ const ModuloReportes = () => {
                                   <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Metrado P.</th>
                                   <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Metrado E.</th>
                                   <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Avance</th>
-                                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Costo</th>
+                                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Precio Unit.</th>
+                                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Valor Total</th>
                                   <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Causas</th>
                                 </tr>
                               </thead>
@@ -990,7 +972,8 @@ const ModuloReportes = () => {
                                     <td className="px-3 py-3 text-sm text-gray-900">{typeof actividad.metradoP === 'number' ? actividad.metradoP.toFixed(2) : actividad.metradoP}</td>
                                     <td className="px-3 py-3 text-sm text-gray-900">{typeof actividad.metradoE === 'number' ? actividad.metradoE.toFixed(2) : actividad.metradoE}</td>
                                     <td className="px-3 py-3 text-sm text-green-600 font-medium">{actividad.avance}</td>
-                                    <td className="px-3 py-3 text-sm text-red-600 font-medium">{formatoMoneda(actividad.costo || actividad.precio || 0)}</td>
+                                    <td className="px-3 py-3 text-sm text-blue-600 font-medium">{formatoMoneda(actividad.precioUnitario || 0)}</td>
+                                    <td className="px-3 py-3 text-sm text-purple-600 font-medium">{formatoMoneda(actividad.valorTotal || 0)}</td>
                                     <td className="px-3 py-3 text-sm text-gray-900">{actividad.causas}</td>
                                   </tr>
                                 ))}
